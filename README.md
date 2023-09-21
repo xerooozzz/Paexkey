@@ -23,20 +23,30 @@ Welcome to the Web Crawler and URL Extractor! This Python script is designed for
 
 1. **Clone the Repository**:
    
-   ``` git clone https://github.com/Paexkey/Web-Crawler-URL-Extractor.git```
-2. **Install Requirements**:
+   ```shell
+   git clone https://github.com/Paexkey/Web-Crawler-URL-Extractor.git
+   ```
+3. **Install Requirements**:
    
-   ```cd Paexkey```
+   ```shell
+   cd Paexkey
+   ```
    
-   ```pip3 install -r requirements.txt```
+   ```shell
+   pip3 install -r requirements.txt
+   ```
 
-4. **Run script**:
+5. **Run script**:
 
-   ```python3 paexkey.py <url> -o <output_directory> -d <depth> -t <threads> -v -k <keywords_list>```
+   ```shell
+   python3 paexkey.py <url> -o <output_directory> -d <depth> -t <threads> -v -k <keywords_list>
+   ```
 
    For long List of urls:
 
-   ```cat <url_list> | xargs -n 10 -P 10 -I {} python3 paexkey.py {} -o <output_directory> -d <depth> -t <threads> -v  k <keywords_list>```
+   ```shell
+   cat <url_list> | xargs -n 10 -P 10 -I {} python3 paexkey.py {} -o <output_directory> -d <depth> -t <threads> -v  k <keywords_list>
+   ```
 
 
 - `<url_file>`: File containing starting URLs.
