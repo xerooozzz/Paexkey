@@ -279,6 +279,10 @@ func main() {
 					continue
 				case <-time.After(time.Duration(*timeout) * time.Second): // timeout reached
 					log.Println("[timeout] " + url)
+					_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
+					if err != nil {
+						log.Println("Error inserting URL:", err)
+					}
 					runtime.GC()
 					continue
 
