@@ -172,10 +172,6 @@ func main() {
 				abs_link := e.Request.AbsoluteURL(link)
 				if strings.Contains(abs_link, url) || !*inside {
 					printResult(link, "href", *showSource, *showWhere, *showJson, results, e)
-					_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
-					if err != nil {
-						log.Println("Error inserting URL:", err)
-					}
 					e.Request.Visit(link)
 				}
 			})
@@ -229,6 +225,11 @@ func main() {
 					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e)
 				}
 			})
+
+			_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
+			if err != nil {
+			    log.Println("Error inserting URL:", err)
+			}
 
 			processedURLs = append(processedURLs, url)
 
