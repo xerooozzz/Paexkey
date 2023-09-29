@@ -276,6 +276,7 @@ func main() {
 				select {
 				case _ = <-finished: // the crawling finished before the timeout
 					close(finished)
+					log.Println("[200 OK] " + url) // Log "[200 OK]" when crawling finishes
 					runtime.GC()
 					continue
 				case <-time.After(time.Duration(*timeout) * time.Second): // timeout reached
