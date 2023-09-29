@@ -72,6 +72,17 @@ func main() {
 	falsePositiveRate := 0.01 // Adjust this rate as needed
 	bloomFilter := bloom.NewWithEstimates(uint(estimatedURLs), falsePositiveRate)
 
+
+	outputFile, err := os.Create("matched_urls.txt")
+    	if err != nil {
+        	log.Fatal(err)
+    	}
+    	defer outputFile.Close()
+
+    	// Create a writer for the output file
+    	outputWriter := bufio.NewWriter(outputFile)
+    	defer outputWriter.Flush()
+
 	if *keywordFile != "" {
 		keywords, err = loadKeywordsFromFile(*keywordFile)
 		if err != nil {
@@ -324,6 +335,17 @@ func main() {
 			fmt.Fprintln(w, res)
 		}
 	}
+
+    	// Iterate over matched URLs and save them to the file
+    	for res := range results {
+        	if len(keywords) == 0 || containsKeyword(res, keywords) {
+            	// Check if keywords are provided and if any of them are present in the URL
+            	_, err := outputWriter.WriteString(res + "\n")
+            	if err != nil {
+                	log.Println("Error writing URL to file:", err)
+            		}
+        	}
+    	}
 }
 
 // parseHeaders does validation of headers input and saves it to a formatted map.
