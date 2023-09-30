@@ -31,6 +31,7 @@ type Result struct {
 
 var headers map[string]string
 var keywords []string
+var keywordMatchedURLs []string
 
 // Thread safe map
 var sm sync.Map
@@ -182,19 +183,19 @@ func main() {
 				link := e.Attr("href")
 				abs_link := e.Request.AbsoluteURL(link)
 				if strings.Contains(abs_link, url) || !*inside {
-					printResult(link, "href", *showSource, *showWhere, *showJson, results, e)
+					printResult(link, "href", *showSource, *showWhere, *showJson, results, e, outputWriter)
 					e.Request.Visit(link)
 				}
 			})
 
 			// find and print all the JavaScript files
 			c.OnHTML("script[src]", func(e *colly.HTMLElement) {
-				printResult(e.Attr("src"), "script", *showSource, *showWhere, *showJson, results, e)
+				printResult(e.Attr("src"), "script", *showSource, *showWhere, *showJson, results, e, outputWriter)
 			})
 
 			// find and print all the form action URLs
 			c.OnHTML("form[action]", func(e *colly.HTMLElement) {
-				printResult(e.Attr("action"), "form", *showSource, *showWhere, *showJson, results, e)
+				printResult(e.Attr("action"), "form", *showSource, *showWhere, *showJson, results, e, outputWriter)
 			})
 
 			// Extract URLs from JavaScript code
@@ -202,21 +203,21 @@ func main() {
 				jsCode := e.Text
 				urls := extractURLsFromJS(jsCode)
 				for _, url := range urls {
-					printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e)
+					printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
 			})
 
 			// Extract URLs from CSS files
 			c.OnHTML("link[rel=stylesheet]", func(e *colly.HTMLElement) {
 				cssURL := e.Attr("href")
-				printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e)
+				printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter)
 			})
 
 			// Extract URLs from embedded resources, iframes, img tags, data attributes, and HTTP redirects
 			c.OnHTML("[src], iframe, img, [data-*]", func(e *colly.HTMLElement) {
 				srcURL := e.Attr("src")
 				if srcURL != "" {
-					printResult(srcURL, "embedded", *showSource, *showWhere, *showJson, results, e)
+					printResult(srcURL, "embedded", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
 			})
 
@@ -224,7 +225,7 @@ func main() {
 			c.OnHTML("button[href], a[href], form[action], select", func(e *colly.HTMLElement) {
 				link := e.Attr("href")
 				if link != "" && (strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://")) {
-					printResult(link, "interactive", *showSource, *showWhere, *showJson, results, e)
+					printResult(link, "interactive", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
 			})
 
@@ -233,7 +234,7 @@ func main() {
 				body := e.Text
 				urls := extractURLsWithCustomPattern(body)
 				for _, url := range urls {
-					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e)
+					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
 			})
 
@@ -266,40 +267,21 @@ func main() {
 				})
 			}
 
-			if *timeout == -1 {
+			if *timeout == -1 || isURLAlive(url, *timeout) {
 				// Start scraping
 				c.Visit(url)
 				// Wait until threads are finished
 				c.Wait()
 				runtime.GC()
+				log.Println("[ALIVE] " + url)
 			} else {
-				finished := make(chan int, 1)
-
-				go func() {
-					// Start scraping
-					c.Visit(url)
-					// Wait until threads are finished
-					c.Wait()
-					runtime.GC()
-					finished <- 0
-				}()
-
-				select {
-				case _ = <-finished: // the crawling finished before the timeout
-					close(finished)
-					log.Println("[ALIVE] " + url) // Log "[200 OK]" when crawling finishes
-					runtime.GC()
-					continue
-				case <-time.After(time.Duration(*timeout) * time.Second): // timeout reached
-					log.Println("[timeout] " + url)
-					_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
-					if err != nil {
-						log.Println("Error inserting URL:", err)
-					}
-					runtime.GC()
-					continue
-
+				log.Println("[TIMEOUT] " + url)
+				_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
+				if err != nil {
+					log.Println("Error inserting URL:", err)
 				}
+				runtime.GC()
+				continue
 			}
 
 		}
@@ -335,17 +317,6 @@ func main() {
 			fmt.Fprintln(w, res)
 		}
 	}
-
-    	// Iterate over matched URLs and save them to the file
-    	for res := range results {
-        	if len(keywords) == 0 || containsKeyword(res, keywords) {
-            	// Check if keywords are provided and if any of them are present in the URL
-            	_, err := outputWriter.WriteString(res + "\n")
-            	if err != nil {
-                	log.Println("Error writing URL to file:", err)
-            		}
-        	}
-    	}
 }
 
 // parseHeaders does validation of headers input and saves it to a formatted map.
@@ -382,40 +353,49 @@ func extractHostname(urlString string) (string, error) {
 	return u.Hostname(), nil
 }
 
-func printResult(link string, sourceName string, showSource bool, showWhere bool, showJson bool, results chan string, e *colly.HTMLElement) {
-	// Check if keywords are provided and if any of them are present in the URL
-	if len(keywords) == 0 || containsKeyword(link, keywords) {
-		result := e.Request.AbsoluteURL(link)
-		whereURL := e.Request.URL.String()
-		if result != "" {
-			if showJson {
-				where := ""
-				if showWhere {
-					where = whereURL
-				}
-				bytes, _ := json.Marshal(Result{
-					Source: sourceName,
-					URL:    result,
-					Where:  where,
-				})
-				result = string(bytes)
-			} else if showSource {
-				result = "[" + sourceName + "] " + result
-			}
+// Modify the printResult function to accept an outputWriter parameter
+func printResult(link string, sourceName string, showSource bool, showWhere bool, showJson bool, results chan string, e *colly.HTMLElement, outputWriter *bufio.Writer) {
+    // Check if keywords are provided and if any of them are present in the URL
+    if len(keywords) == 0 || containsKeyword(link, keywords) {
+        result := e.Request.AbsoluteURL(link)
+        whereURL := e.Request.URL.String()
+        if result != "" {
+            if showJson {
+                where := ""
+                if showWhere {
+                    where = whereURL
+                }
+                bytes, _ := json.Marshal(Result{
+                    Source: sourceName,
+                    URL:    result,
+                    Where:  where,
+                })
+                result = string(bytes)
+            } else if showSource {
+                result = "[" + sourceName + "] " + result
+            }
 
-			if showWhere && !showJson {
-				result = "[" + whereURL + "] " + result
-			}
+            if showWhere && !showJson {
+                result = "[" + whereURL + "] " + result
+            }
 
-			// If timeout occurs before goroutines are finished, recover from panic that may occur when attempting writing to results to closed results channel
-			defer func() {
-				if err := recover(); err != nil {
-					return
-				}
-			}()
-			results <- result
-		}
-	}
+            // If timeout occurs before goroutines are finished, recover from panic that may occur when attempting writing to results to closed results channel
+            defer func() {
+                if err := recover(); err != nil {
+                    return
+                }
+            }()
+            results <- result
+
+            // Save URLs containing keywords to the file
+            if len(keywords) == 0 || containsKeyword(result, keywords) {
+                _, err := outputWriter.WriteString(result + "\n")
+                if err != nil {
+                    log.Println("Error writing URL to file:", err)
+                }
+            }
+        }
+    }
 }
 
 // Function to check if any keyword is present in the URL
@@ -510,4 +490,16 @@ func isProcessed(url string, processedURLs []string) bool {
         }
     }
     return false
+}
+
+func isURLAlive(url string, timeout int) bool {
+    client := http.Client{
+        Timeout: time.Duration(timeout) * time.Second,
+    }
+    resp, err := client.Head(url)
+    if err != nil {
+        return false
+    }
+    defer resp.Body.Close()
+    return resp.StatusCode == http.StatusOK
 }
