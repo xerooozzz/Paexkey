@@ -34,7 +34,7 @@ type Result struct {
 var headers map[string]string
 var keywords []string
 var keywordMatchedURLs []string
-var outputDir string
+var mutex = &sync.Mutex{}
 
 // Define a global variable to hold the directory path for databases
 var dbDir = "databases/"
@@ -57,7 +57,6 @@ func main() {
 	timeout := flag.Int("timeout", -1, "Maximum time to crawl each URL from stdin, in seconds.")
 	disableRedirects := flag.Bool("dr", false, "Disable following HTTP redirects.")
 	keywordFile := flag.String("k", "", "Path to a wordlist file containing keywords.")
-	flag.StringVar(&outputDir, "output-dir", "", "Output directory for saving individual URL files.")
 
 	flag.Parse()
 
@@ -536,7 +535,6 @@ func main() {
 
 					// Print the unique URL
 					fmt.Fprintln(w, res)
-					saveURLToFile(res)
 				}
 			}
 		}
@@ -549,7 +547,6 @@ func main() {
 
 			// Print the unique URL
 			fmt.Fprintln(w, res)
-			saveURLToFile(res)
 		}
 	}
 }
@@ -588,7 +585,6 @@ func extractHostname(urlString string) (string, error) {
 	return u.Hostname(), nil
 }
 
-// Modify the printResult function to accept an outputWriter parameter
 func printResult(link string, sourceName string, showSource bool, showWhere bool, showJson bool, results chan string, e *colly.HTMLElement, outputWriter *bufio.Writer) {
 	// Check if keywords are provided and if any of them are present in the URL
 	if len(keywords) == 0 || containsKeyword(link, keywords) {
@@ -614,6 +610,9 @@ func printResult(link string, sourceName string, showSource bool, showWhere bool
 				result = "[" + whereURL + "] " + result
 			}
 
+			// Lock the mutex before writing to the file
+			mutex.Lock()
+
 			// If timeout occurs before goroutines are finished, recover from panic that may occur when attempting writing to results to closed results channel
 			defer func() {
 				if err := recover(); err != nil {
@@ -629,6 +628,7 @@ func printResult(link string, sourceName string, showSource bool, showWhere bool
 					log.Println("Error writing URL to file:", err)
 				}
 			}
+			defer mutex.Unlock()
 		}
 	}
 }
@@ -791,40 +791,4 @@ func mergeDatabases(dirPath string) {
 			}
 		}
 	}
-}
-
-func saveURLToFile(url string) {
-	if outputDir != "" {
-		// Create the output directory if it doesn't exist
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			log.Println("Error creating output directory:", err)
-			return
-		}
-
-		// Create a filename based on the URL
-		filename := filepath.Join(outputDir, sanitizeFilename(url))
-
-		// Create or open the file for writing
-		file, err := os.Create(filename)
-		if err != nil {
-			log.Println("Error creating file:", err)
-			return
-		}
-		defer file.Close()
-
-		// Write the URL to the file
-		if _, err := file.WriteString(url); err != nil {
-			log.Println("Error writing to file:", err)
-		}
-	}
-}
-
-// sanitizeFilename sanitizes a string to be used as a filename
-func sanitizeFilename(filename string) string {
-	// Remove characters that are not valid in filenames
-	// For simplicity, you can customize this function further
-	filename = strings.ReplaceAll(filename, "://", "-")
-	filename = strings.ReplaceAll(filename, "/", "-")
-	filename = strings.ReplaceAll(filename, ".", "-")
-	return filename
 }
