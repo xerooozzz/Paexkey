@@ -8,10 +8,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -19,8 +21,8 @@ import (
 	"time"
 
 	"github.com/bits-and-blooms/bloom/v3"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/gocolly/colly/v2"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Result struct {
@@ -32,6 +34,9 @@ type Result struct {
 var headers map[string]string
 var keywords []string
 var keywordMatchedURLs []string
+
+// Define a global variable to hold the directory path for databases
+var dbDir = "databases/"
 
 // Thread safe map
 var sm sync.Map
@@ -54,7 +59,16 @@ func main() {
 
 	flag.Parse()
 
-	db, err := sql.Open("sqlite3", "crawler.db")
+	// Create a directory for databases if it doesn't exist
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		log.Fatal(err)
+	}
+
+	// Generate a unique database filename for each process
+	dbFileName := fmt.Sprintf("%s/crawler-%d.db", dbDir, os.Getpid())
+
+	// Open the database for this process
+	db, err := sql.Open("sqlite3", dbFileName)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -73,16 +87,16 @@ func main() {
 	falsePositiveRate := 0.01 // Adjust this rate as needed
 	bloomFilter := bloom.NewWithEstimates(uint(estimatedURLs), falsePositiveRate)
 
+	// Open the file for writing or append if it exists
+	outputFile, err := os.OpenFile("matched_urls.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer outputFile.Close()
 
-	outputFile, err := os.Create("matched_urls.txt")
-    	if err != nil {
-        	log.Fatal(err)
-    	}
-    	defer outputFile.Close()
-
-    	// Create a writer for the output file
-    	outputWriter := bufio.NewWriter(outputFile)
-    	defer outputWriter.Flush()
+	// Create a writer for the output file
+	outputWriter := bufio.NewWriter(outputFile)
+	defer outputWriter.Flush()
 
 	if *keywordFile != "" {
 		keywords, err = loadKeywordsFromFile(*keywordFile)
@@ -240,7 +254,7 @@ func main() {
 
 			_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
 			if err != nil {
-			    log.Println("Error inserting URL:", err)
+				log.Println("Error inserting URL:", err)
 			}
 
 			processedURLs = append(processedURLs, url)
@@ -288,8 +302,13 @@ func main() {
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
 		}
+		defer func() {
+			db.Close()
+		}()
 		close(results)
-		defer db.Close()
+
+		mergeDatabases(dbDir)
+
 	}()
 
 	w := bufio.NewWriter(os.Stdout)
@@ -355,47 +374,47 @@ func extractHostname(urlString string) (string, error) {
 
 // Modify the printResult function to accept an outputWriter parameter
 func printResult(link string, sourceName string, showSource bool, showWhere bool, showJson bool, results chan string, e *colly.HTMLElement, outputWriter *bufio.Writer) {
-    // Check if keywords are provided and if any of them are present in the URL
-    if len(keywords) == 0 || containsKeyword(link, keywords) {
-        result := e.Request.AbsoluteURL(link)
-        whereURL := e.Request.URL.String()
-        if result != "" {
-            if showJson {
-                where := ""
-                if showWhere {
-                    where = whereURL
-                }
-                bytes, _ := json.Marshal(Result{
-                    Source: sourceName,
-                    URL:    result,
-                    Where:  where,
-                })
-                result = string(bytes)
-            } else if showSource {
-                result = "[" + sourceName + "] " + result
-            }
+	// Check if keywords are provided and if any of them are present in the URL
+	if len(keywords) == 0 || containsKeyword(link, keywords) {
+		result := e.Request.AbsoluteURL(link)
+		whereURL := e.Request.URL.String()
+		if result != "" {
+			if showJson {
+				where := ""
+				if showWhere {
+					where = whereURL
+				}
+				bytes, _ := json.Marshal(Result{
+					Source: sourceName,
+					URL:    result,
+					Where:  where,
+				})
+				result = string(bytes)
+			} else if showSource {
+				result = "[" + sourceName + "] " + result
+			}
 
-            if showWhere && !showJson {
-                result = "[" + whereURL + "] " + result
-            }
+			if showWhere && !showJson {
+				result = "[" + whereURL + "] " + result
+			}
 
-            // If timeout occurs before goroutines are finished, recover from panic that may occur when attempting writing to results to closed results channel
-            defer func() {
-                if err := recover(); err != nil {
-                    return
-                }
-            }()
-            results <- result
+			// If timeout occurs before goroutines are finished, recover from panic that may occur when attempting writing to results to closed results channel
+			defer func() {
+				if err := recover(); err != nil {
+					return
+				}
+			}()
+			results <- result
 
-            // Save URLs containing keywords to the file
-            if len(keywords) == 0 || containsKeyword(result, keywords) {
-                _, err := outputWriter.WriteString(result + "\n")
-                if err != nil {
-                    log.Println("Error writing URL to file:", err)
-                }
-            }
-        }
-    }
+			// Save URLs containing keywords to the file
+			if len(keywords) == 0 || containsKeyword(result, keywords) {
+				_, err := outputWriter.WriteString(result + "\n")
+				if err != nil {
+					log.Println("Error writing URL to file:", err)
+				}
+			}
+		}
+	}
 }
 
 // Function to check if any keyword is present in the URL
@@ -484,22 +503,76 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 
 // isProcessed checks if a URL is already processed in the database.
 func isProcessed(url string, processedURLs []string) bool {
-    for _, processed := range processedURLs {
-        if processed == url {
-            return true
-        }
-    }
-    return false
+	for _, processed := range processedURLs {
+		if processed == url {
+			return true
+		}
+	}
+	return false
 }
 
 func isURLAlive(url string, timeout int) bool {
-    client := http.Client{
-        Timeout: time.Duration(timeout) * time.Second,
-    }
-    resp, err := client.Head(url)
-    if err != nil {
-        return false
-    }
-    defer resp.Body.Close()
-    return resp.StatusCode == http.StatusOK
+	client := http.Client{
+		Timeout: time.Duration(timeout) * time.Second,
+	}
+	resp, err := client.Head(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// Merge all databases in the specified directory into a single database
+func mergeDatabases(dirPath string) {
+	// Open a connection to the main database
+	mainDB, err := sql.Open("sqlite3", "main.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer mainDB.Close()
+
+	// List all database files in the directory
+	files, err := ioutil.ReadDir(dirPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".db") {
+			// Generate a unique name for the attached database based on the file name
+			dbName := strings.TrimSuffix(file.Name(), ".db")
+
+			// Open the individual database
+			dbFileName := filepath.Join(dirPath, file.Name())
+			db, err := sql.Open("sqlite3", dbFileName)
+			if err != nil {
+				log.Println("Error opening database:", err)
+				continue
+			}
+			defer db.Close()
+
+			// Attach the individual database to the main database with a unique name
+			attachStmt := fmt.Sprintf("ATTACH DATABASE '%s' AS '%s'", dbFileName, dbName)
+			_, err = mainDB.Exec(attachStmt)
+			if err != nil {
+				log.Println("Error attaching database:", err)
+				continue
+			}
+
+			// Merge data from the individual database into the main database
+			mergeStmt := fmt.Sprintf("INSERT OR IGNORE INTO crawled_urls SELECT * FROM '%s'.crawled_urls", dbName)
+			_, err = mainDB.Exec(mergeStmt)
+			if err != nil {
+				log.Println("Error merging database:", err)
+			}
+
+			// Detach the individual database
+			detachStmt := fmt.Sprintf("DETACH DATABASE '%s'", dbName)
+			_, err = mainDB.Exec(detachStmt)
+			if err != nil {
+				log.Println("Error detaching database:", err)
+			}
+		}
+	}
 }
