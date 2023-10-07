@@ -38,8 +38,6 @@ var keywordMatchedURLs []string
 // Define a global variable to hold the directory path for databases
 var dbDir = "databases/"
 
-const bufferSize = 20 * 1024 * 1024
-
 // Thread safe map
 var sm sync.Map
 
@@ -97,7 +95,8 @@ func main() {
 	defer outputFile.Close()
 
 	// Create a writer for the output file
-	outputWriter := bufio.NewWriter(outputFile, bufferSize)
+	const bufferSize = 20 * 1024 * 1024 // 20MB
+	outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
 	defer outputWriter.Flush()
 
 	if *keywordFile != "" {
