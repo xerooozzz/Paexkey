@@ -73,7 +73,21 @@ func main() {
 		log.Fatal(err)
 	}
 
+	db1, err := sql.Open("sqlite3", "main.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS crawled_urls (
+		url TEXT PRIMARY KEY,
+		source TEXT,
+		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = db1.Exec(`CREATE TABLE IF NOT EXISTS crawled_urls (
 		url TEXT PRIMARY KEY,
 		source TEXT,
 		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -258,20 +272,20 @@ func main() {
 				// Check for href attribute
 				href := e.Attr("href")
 				if href != "" {
-					printResult(href, "generic", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(href, "href", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
 
 				// Check for src attribute
 				src := e.Attr("src")
 				if src != "" {
-					printResult(src, "generic", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(src, "src", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
 
 				// Check for data attributes that may contain URLs
 				e.ForEach("[data-*]", func(_ int, el *colly.HTMLElement) {
 					dataAttr := el.Text
 					if dataAttr != "" {
-						printResult(dataAttr, "generic", *showSource, *showWhere, *showJson, results, e, outputWriter)
+						printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter)
 					}
 				})
 
