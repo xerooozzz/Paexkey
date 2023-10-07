@@ -283,12 +283,12 @@ func main() {
 				}
 
 				// Check for data attributes that may contain URLs
-				e.ForEach("[data-*]", func(_ int, el *colly.HTMLElement) {
-					dataAttr := el.Text
-					if dataAttr != "" {
-						printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter)
-					}
-				})
+				// e.ForEach("[data-*]", func(_ int, el *colly.HTMLElement) {
+				// 	dataAttr := el.Text
+				// 	if dataAttr != "" {
+				// 		printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				// 	}
+				// })
 
 				// Check for content attribute in meta tags
 				if e.Name == "meta" {
@@ -314,12 +314,12 @@ func main() {
 				}
 
 				// Check for custom data attributes that may contain URLs
-				e.ForEach("[data-custom-*]", func(_ int, el *colly.HTMLElement) {
-					customDataAttr := el.Text
-					if customDataAttr != "" {
-						printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter)
-					}
-				})
+				// e.ForEach("[data-custom-*]", func(_ int, el *colly.HTMLElement) {
+				// 	customDataAttr := el.Text
+				// 	if customDataAttr != "" {
+				// 		printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				// 	}
+				// })
 
 				// Add more checks for specific elements and attributes here
 			})
