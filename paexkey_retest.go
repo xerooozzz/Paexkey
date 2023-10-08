@@ -74,10 +74,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	db1, err := sql.Open("sqlite3", "main.db")
-	if err != nil {
-		log.Fatal(err)
-	}
+    // Open the main database for this process
+    mainDB, err := sql.Open("sqlite3", "main.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer mainDB.Close()
 
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS crawled_urls (
 		url TEXT PRIMARY KEY,
@@ -88,7 +90,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	_, err = db1.Exec(`CREATE TABLE IF NOT EXISTS crawled_urls (
+	_, err = mainDB.Exec(`CREATE TABLE IF NOT EXISTS crawled_urls (
 		url TEXT PRIMARY KEY,
 		source TEXT,
 		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -127,23 +129,13 @@ func main() {
 	}
 	proxyURL, _ := url.Parse(os.Getenv("PROXY"))
 
-	rows, err := db1.Query("SELECT url FROM crawled_urls")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
+    // Prepare a statement to check if a URL exists in the crawled_urls table
+    checkStmt, err := mainDB.Prepare("SELECT 1 FROM crawled_urls WHERE url = ? LIMIT 1")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer checkStmt.Close()
 
-	// Iterate over the rows and add the URLs to a data structure for reference during crawling.
-	var processedURLs []string
-	for rows.Next() {
-		var url string
-		err := rows.Scan(&url)
-		if err != nil {
-			log.Println("Error scanning row:", err)
-			continue
-		}
-		processedURLs = append(processedURLs, url)
-	}
 
 	// Check for stdin input
 	stat, _ := os.Stdin.Stat()
@@ -164,8 +156,17 @@ func main() {
 				continue
 			}
 
-			if isProcessed(url, processedURLs) {
-				continue // Skip this URL, it's already processed
+			// Check if the URL exists in the crawled_urls table
+			var exists int
+			err = checkStmt.QueryRow(url).Scan(&exists)
+			if err == sql.ErrNoRows {
+				// URL doesn't exist, proceed with crawling
+			} else if err != nil {
+				log.Println("Error checking URL existence:", err)
+				continue
+			} else {
+				// URL already crawled, skip it
+				continue
 			}
 
 			allowed_domains := []string{hostname}
@@ -465,7 +466,7 @@ func main() {
 				}
 			})
 
-			_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
+			_, err = mainDB.Exec("INSERT INTO crawled_urls (url) VALUES (?)", url)
 			if err != nil {
 				log.Println("Error inserting URL:", err)
 			}
@@ -503,7 +504,7 @@ func main() {
 				log.Println("[ALIVE] " + url)
 			} else {
 				log.Println("[TIMEOUT] " + url)
-				_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
+				_, err = mainDB.Exec("INSERT INTO crawled_urls (url) VALUES (?)", url)
 				if err != nil {
 					log.Println("Error inserting URL:", err)
 				}
