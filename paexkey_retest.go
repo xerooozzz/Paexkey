@@ -65,14 +65,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Generate a unique database filename for each process
-	dbFileName := fmt.Sprintf("%s/crawler-%d.db", dbDir, os.Getpid())
+	mainDomain, err := extractMainDomain(url)
+	if err != nil {
+		log.Println("Error parsing URL:", err)
+		return
+	}
+
+	dbFileName := fmt.Sprintf("%s.db", mainDomain) // Use mainDomain as the database name
 
 	// Open the database for this process
 	db, err := sql.Open("sqlite3", dbFileName)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 
 	db1, err := sql.Open("sqlite3", "main.db")
 	if err != nil {
@@ -93,12 +99,6 @@ func main() {
 		source TEXT,
 		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	)`)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Add an Index to the crawled_urls table on the url column
-	_, err = db1.Exec("CREATE INDEX IF NOT EXISTS idx_crawled_urls ON crawled_urls (url)")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -133,12 +133,23 @@ func main() {
 	}
 	proxyURL, _ := url.Parse(os.Getenv("PROXY"))
 
-    // Create a prepared statement to check if a URL exists in db1 database
-    checkURLStmt, err := db1.Prepare("SELECT 1 FROM crawled_urls WHERE url = ? LIMIT 1")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer checkURLStmt.Close()
+	rows, err := db.Query("SELECT url FROM crawled_urls")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	// Iterate over the rows and add the URLs to a data structure for reference during crawling.
+	var processedURLs []string
+	for rows.Next() {
+		var url string
+		err := rows.Scan(&url)
+		if err != nil {
+			log.Println("Error scanning row:", err)
+			continue
+		}
+		processedURLs = append(processedURLs, url)
+	}
 
 	// Check for stdin input
 	stat, _ := os.Stdin.Stat()
@@ -159,8 +170,8 @@ func main() {
 				continue
 			}
 
-			if urlExists(url, checkURLStmt) {
-				continue // URL is already processed, skip it
+			if isProcessed(url, processedURLs) {
+				continue // Skip this URL, it's already processed
 			}
 
 			allowed_domains := []string{hostname}
@@ -460,6 +471,13 @@ func main() {
 				}
 			})
 
+			_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
+			if err != nil {
+				log.Println("Error inserting URL:", err)
+			}
+
+			processedURLs = append(processedURLs, url)
+
 			// add the custom headers
 			if headers != nil {
 				c.OnRequest(func(r *colly.Request) {
@@ -489,15 +507,16 @@ func main() {
 				c.Wait()
 				runtime.GC()
 				log.Println("[ALIVE] " + url)
-				markURLAsProcessed(url, db)
 			} else {
 				log.Println("[TIMEOUT] " + url)
-				markURLAsProcessed(url, db)
+				_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
+				if err != nil {
+					log.Println("Error inserting URL:", err)
+				}
 				runtime.GC()
 				continue
 			}
-			// Close the prepared statement
-			checkURLStmt.Close()
+
 		}
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
@@ -780,21 +799,18 @@ func mergeDatabases(dirPath string) {
 	}
 }
 
-// Function to check if a URL exists in the database
-func urlExists(url string, stmt *sql.Stmt) bool {
-    var exists bool
-    err := stmt.QueryRow(url).Scan(&exists)
-    if err != nil {
-        log.Println("Error checking if URL exists:", err)
-        return false
-    }
-    return exists
-}
 
-// Function to mark a URL as processed in the database
-func markURLAsProcessed(url string, db *sql.DB) {
-    _, err := db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
-    if err != nil {
-        log.Println("Error inserting URL:", err)
-    }
+func extractMainDomain(urlStr string) (string, error) {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return "", err
+	}
+
+	hostParts := strings.Split(parsedURL.Hostname(), ".")
+	if len(hostParts) < 2 {
+		return "", fmt.Errorf("Invalid hostname")
+	}
+
+	mainDomain := hostParts[len(hostParts)-2] + "_" + hostParts[len(hostParts)-1]
+	return mainDomain, nil
 }
