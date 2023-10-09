@@ -97,6 +97,17 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Start a transaction
+	tx, err := db1.Begin()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tx.Rollback() // Rollback the transaction in case of error
+
+	// Prepare the SELECT statement with a LIMIT and OFFSET for batch processing
+	batchSize := 10000 // Adjust the batch size as needed
+	offset := 0
+
 	// Create a Bloom filter with an estimated number of unique URLs and a desired false positive rate
 	estimatedURLs := 1000000  // Adjust this number based on your expected workload
 	falsePositiveRate := 0.01 // Adjust this rate as needed
@@ -127,28 +138,37 @@ func main() {
 	}
 	proxyURL, _ := url.Parse(os.Getenv("PROXY"))
 
-	// Set WAL mode. This allows concurrent reading.
-	_, err = db1.Exec("PRAGMA journal_mode=WAL")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	rows, err := db1.Query("SELECT url FROM crawled_urls")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	// Iterate over the rows and add the URLs to a data structure for reference during crawling.
-	var processedURLs []string
-	for rows.Next() {
-		var url string
-		err := rows.Scan(&url)
+	for {
+		// Fetch a batch of rows
+		rows, err := tx.Query("SELECT url FROM crawled_urls LIMIT $1 OFFSET $2", batchSize, offset)
 		if err != nil {
-			log.Println("Error scanning row:", err)
-			continue
+			log.Println("Error querying rows:", err)
+			break
 		}
-		processedURLs = append(processedURLs, url)
+		defer rows.Close()
+	
+		// Iterate over the rows and add the URLs to a data structure for reference during crawling.
+		for rows.Next() {
+			var url string
+			err := rows.Scan(&url)
+			if err != nil {
+				log.Println("Error scanning row:", err)
+				continue
+			}
+			processedURLs = append(processedURLs, url)
+		}
+	
+		if len(processedURLs) < batchSize {
+			// If we fetched fewer rows than the batch size, we've reached the end of the table
+			break
+		}
+	
+		offset += batchSize
+	}
+	
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		log.Fatal(err)
 	}
 
 	// Check for stdin input
