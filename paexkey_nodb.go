@@ -3,12 +3,10 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -76,16 +74,6 @@ func main() {
 		_, err = bloomFilter.Read(bloomFilterData)
 		if err != nil {
 			log.Fatal("Error loading Bloom filter data:", err)
-		}
-	}
-
-	// Load processed URLs from disk
-	processedURLsData, err := d.Read("processed_urls")
-	if err == nil {
-		// Deserialize the data and populate the processedURLs slice
-		err = json.Unmarshal(processedURLsData, &processedURLs)
-		if err != nil {
-			log.Fatal("Error loading processed URLs data:", err)
 		}
 	}
 
@@ -479,12 +467,7 @@ func main() {
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
 		}
-		defer func() {
-			db.Close()
-		}()
 		close(results)
-
-		mergeDatabases(dbDir)
 
 		// Save the updated Bloom filter to disk
 		bloomFilterData, err := bloomFilter.WriteToBytes()
