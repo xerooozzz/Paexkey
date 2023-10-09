@@ -4,7 +4,7 @@ max_processes=300  # Maximum number of parallel processes
 current_processes=40  # Start with 40 process
 delay_seconds=1
 
-find bug_bounty -type f -print0 | while read -d $'\0' file; do
+find bug_bounty/ -type f -print0 | while read -d $'\0' file; do
   # Run the command for the current file
   cat "$file" | go run paexkey_unleashed.go -t 200 -subs -s -w -u -timeout 6 -k keywords | flock -x bugbounty.paexkey -c 'tee -a bugbounty.paexkey' &
 
