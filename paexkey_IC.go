@@ -454,7 +454,7 @@ func main() {
 		timeoutDuration := time.Duration(*timeout) * time.Second
 		select {
 		case <-time.After(timeoutDuration):
-			log.Println("[DONE]: Closing goroutine as it complete}")
+			log.Println("[DONE]: Closing goroutine as it complete")
 		case <-done:
 			// The goroutine completed successfully
 		}
