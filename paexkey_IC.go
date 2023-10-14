@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"os/exec"
 
 	"github.com/gocolly/colly/v2"
 )
