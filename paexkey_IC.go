@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,6 +24,15 @@ type Result struct {
 	Source string
 	URL    string
 	Where  string
+}
+
+var pingTargets = []string{
+	"google.com",
+	"1.1.1.1",
+	"208.67.222.222",
+	"4.2.2.2",
+	"9.9.9.9",
+	"75.75.75.75",
 }
 
 var headers map[string]string
@@ -655,7 +663,7 @@ func isURLAlive(url string, timeout int) bool {
 			break
 		}
 		log.Println("Waiting for internet connection...")
-		time.Sleep(30 * time.Second) // Wait for 30 seconds before rechecking
+		time.Sleep(3 * time.Second) // Wait for 30 seconds before rechecking
 	}
 
 	// Attempt to resolve the hostname from the URL
@@ -720,19 +728,14 @@ func isURLAlive(url string, timeout int) bool {
 }
 
 func isInternetConnected() bool {
-	// Check if there's an active network connection
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		log.Println("[INTERNET CHECK ERROR]:", err)
-		return false
+	for _, target := range pingTargets {
+		cmd := exec.Command("ping", "-c", "1", target) // Use -c 1 for a single ping
+		err := cmd.Run()
+		if err == nil {
+			return true
 	}
+}
 
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return true
-			}
-		}
-	}
-	return false
+log.Println("[INTERNET CHECK ERROR]: No internet connection detected.")
+return false
 }
