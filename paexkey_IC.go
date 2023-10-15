@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"os/exec"
 
 	"github.com/gocolly/colly/v2"
 )
