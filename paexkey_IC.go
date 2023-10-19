@@ -758,23 +758,22 @@ func isURLAlive(url string, timeout int) bool {
 
 
 func isInternetConnected() {
-    for {
-        connected := false
-        for _, dnsServer := range dnsServers {
-            _, err := net.LookupHost(dnsServer)
-            if err == nil {
-                connected = true
-                break
+    connected := make(chan struct{})
+
+    go func() {
+        for {
+            for _, dnsServer := range dnsServers {
+                _, err := net.LookupHost(dnsServer)
+                if err == nil {
+                    close(connected)
+                    return
+                }
             }
-        }
 
-        if connected {
-            return
+            // If not connected, wait for a while before checking again
+            time.Sleep(5 * time.Second)
         }
+    }()
 
-        // If not connected, wait for a while before checking again
-        time.Sleep(5 * time.Second)
-    }
+    <-connected // This will block the script until the internet connection is established.
 }
-
-
