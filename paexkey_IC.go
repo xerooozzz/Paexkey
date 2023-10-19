@@ -93,6 +93,15 @@ func main() {
 
 	flag.Parse()
 
+	// Create a channel to signal when the internet connection is established.
+    	connected := make(chan struct{})
+
+    	// Start the goroutine to check for the internet connection.
+   	go isInternetConnected(connected)
+
+   	// This will block the script until the internet connection is established.
+    	<-connected
+
 	// Create a wait group to wait for the goroutine to finish
 	var wg sync.WaitGroup
 
@@ -757,23 +766,17 @@ func isURLAlive(url string, timeout int) bool {
 }
 
 
-func isInternetConnected() {
-    connected := make(chan struct{})
-
-    go func() {
-        for {
-            for _, dnsServer := range dnsServers {
-                _, err := net.LookupHost(dnsServer)
-                if err == nil {
-                    close(connected)
-                    return
-                }
+func isInternetConnected(connected chan struct{}) {
+    for {
+        for _, dnsServer := range dnsServers {
+            _, err := net.LookupHost(dnsServer)
+            if err == nil {
+                close(connected)
+                return
             }
-
-            // If not connected, wait for a while before checking again
-            time.Sleep(5 * time.Second)
         }
-    }()
 
-    <-connected // This will block the script until the internet connection is established.
+        // If not connected, wait for a while before checking again
+        time.Sleep(5 * time.Second)
+    }
 }
