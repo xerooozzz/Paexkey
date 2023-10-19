@@ -689,13 +689,10 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 }
 
 func isURLAlive(url string, timeout int) bool {
-	// Check for network connectivity
-	for {
-		if isInternetConnected() {
-			break
-		}
+	// Check for network connectivity, If not found, wait indefinitely until internet comes back
+	for !isInternetConnected() {
 		log.Println("Waiting for internet connection...")
-		time.Sleep(1 * time.Second) // Wait for 30 seconds before rechecking
+		time.Sleep(1 * time.Second) // Wait for 1 second before rechecking
 	}
 
 	// Attempt to resolve the hostname from the URL
