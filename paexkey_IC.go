@@ -757,16 +757,24 @@ func isURLAlive(url string, timeout int) bool {
 }
 
 
-func isInternetConnected() bool {
-	for {
-		for _, dnsServer := range dnsServers {
-			_, err := net.LookupHost(dnsServer)
-			if err == nil {
-				return true
-			}
-		}
+func isInternetConnected() {
+    for {
+        connected := false
+        for _, dnsServer := range dnsServers {
+            _, err := net.LookupHost(dnsServer)
+            if err == nil {
+                connected = true
+                break
+            }
+        }
 
-		log.Println("Waiting for internet connection...")
-		time.Sleep(5 * time.Second) // Wait for 5 seconds before rechecking
-	}
+        if connected {
+            return
+        }
+
+        // If not connected, wait for a while before checking again
+        time.Sleep(5 * time.Second)
+    }
 }
+
+
