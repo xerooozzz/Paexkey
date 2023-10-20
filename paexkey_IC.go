@@ -482,8 +482,6 @@ func main() {
 						runtime.GC()
 					}
 				}
-				log.Println("Waiting for internet connection...")
-				time.Sleep(1 * time.Second) // Wait for 30 seconds before rechecking
 			}
 
 		}
