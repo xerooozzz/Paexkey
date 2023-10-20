@@ -461,30 +461,25 @@ func main() {
 					TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
 				})
 			}
-
-			for {
-			    if isInternetConnected() {
-			        if *timeout == -1 || isURLAlive(url, *timeout) {
-			            // Check if URL is truly alive
-			            if isURLAlive(url, *timeout) {
-			                // Start scraping
-			                c.Visit(url)
-			                // Wait until threads are finished
-			                c.Wait()
-			                runtime.GC()
-			                log.Println("[CRAWLED]: " + url)
-			                break  // Exit the loop after successful visit
-			            } else {
-			                log.Println("[URL UNREACHABLE]: " + url)
-			                runtime.GC()
-			                break  // Exit the loop if the URL is unreachable
-			            }
-			        } else {
-			            log.Println("[URL UNREACHABLE]: " + url)
-			            runtime.GC()
-			            break  // Exit the loop if the URL is unreachable
-			        }
+			if *timeout == -1 || isURLAlive(url, *timeout) {
+			    // Check if URL is truly alive
+			    if isURLAlive(url, *timeout) {
+				// Start scraping
+				c.Visit(url)
+				// Wait until threads are finished
+				c.Wait()
+				runtime.GC()
+				log.Println("[CRAWLED]: " + url)
+				break  // Exit the loop after successful visit
+			    } else {
+				log.Println("[URL UNREACHABLE]: " + url)
+				runtime.GC()
+				break  // Exit the loop if the URL is unreachable
 			    }
+			} else {
+			    log.Println("[URL UNREACHABLE]: " + url)
+			    runtime.GC()
+			    break  // Exit the loop if the URL is unreachable
 			}
 		}
 		if err := s.Err(); err != nil {
@@ -695,67 +690,64 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 }
 
 func isURLAlive(url string, timeout int) bool {
+	for {
+		if isInternetConnected() {
+			// Attempt to resolve the hostname from the URL
+			host, err := extractHostname(url)
+			if err != nil {
+				log.Printf("[INVALID URL]: %s\n", url)
+				return false
+			}
 
-	// Attempt to resolve the hostname from the URL
-	host, err := extractHostname(url)
-	if err != nil {
-		log.Printf("[INVALID URL]: %s\n", url)
-		return false
-	}
+			// Check DNS resolution
+			ips, err := net.LookupIP(host)
+			if err != nil {
+				return false
+			}
 
-	// Check DNS resolution
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		// log.Printf("[DNS ERROR]: Unable to resolve host %s: %v\n", host, err)
-		return false
-	}
+			if len(ips) == 0 {
+				return false
+			}
 
-	if len(ips) == 0 {
-		// log.Printf("[NO IP ADDRESSES]: No IP addresses found for host %s\n", host)
-		return false
-	}
+			// Define the maximum number of retries
+			maxRetries := 4
+			for i := 0; i < maxRetries; i++ {
+				client := http.Client{
+					Timeout: time.Duration(timeout) * time.Second,
+				}
+				resp, err := client.Head(url)
+				if err != nil {
+					// Handle network errors
+					time.Sleep(15 * time.Second) // Wait before retry
+					continue
+				}
+				defer resp.Body.Close()
 
-	// Define the maximum number of retries
-	maxRetries := 4
-	for i := 0; i < maxRetries; i++ {
-		client := http.Client{
-			Timeout: time.Duration(timeout) * time.Second,
-		}
-		resp, err := client.Head(url)
-		if err != nil {
-			// Handle network errors
-			// log.Printf("[NETWORK ERROR]: %s, Retry #%d\n", url, i+1)
-			time.Sleep(15 * time.Second) // Wait before retry
-			continue
-		}
-		defer resp.Body.Close()
+				if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+					// URL is alive and within expected range (200-399)
+					return true
+				} else if resp.StatusCode == http.StatusTooManyRequests {
+					// Handle rate limiting or temporary unavailability
+					time.Sleep(20 * time.Second) // Wait before retry
+				} else if resp.StatusCode >= 500 {
+					// Retry if it's a server error (500+)
+					time.Sleep(10 * time.Second)
+				} else if resp.StatusCode == 404 || resp.StatusCode == 403 || resp.StatusCode == 401 || resp.StatusCode == 400 {
+					// Skip the URL for specific status codes (400, 401, 403, 404)
+					return false
+				} else {
+					// Handle other non-OK status codes
+					log.Printf("[HTTP STATUS]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
+					time.Sleep(5 * time.Second) // Wait before retry
+				}
+			}
 
-		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-			// URL is alive and within expected range (200-399)
-			return true
-		} else if resp.StatusCode == http.StatusTooManyRequests {
-			// Handle rate limiting or temporary unavailability
-			// log.Printf("[RATE LIMITING]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
-			time.Sleep(20 * time.Second) // Wait before retry
-		} else if resp.StatusCode >= 500 {
-			// Retry if it's a server error (500+)
-			// log.Printf("[RETRYING]: %s - Status: %d\n", url, resp.StatusCode)
-			time.Sleep(10 * time.Second)
-		} else if resp.StatusCode == 404 || resp.StatusCode == 403 || resp.StatusCode == 401 || resp.StatusCode == 400 {
-			// Skip the URL for specific status codes (400, 401, 403, 404)
-			// log.Printf("[SKIPPING]: %s - Status: %d\n", url, resp.StatusCode)
+			// All retries failed, URL is not reachable
 			return false
-		} else {
-			// Handle other non-OK status codes
-			log.Printf("[HTTP STATUS]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
-			time.Sleep(5 * time.Second) // Wait before retry
 		}
 	}
-
-	// All retries failed, URL is not reachable
-	// log.Printf("[URL UNREACHABLE]: %s\n", url)
-	return false
 }
+
 
 
 func isInternetConnected() bool {
