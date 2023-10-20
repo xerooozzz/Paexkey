@@ -753,6 +753,7 @@ func isURLAlive(url string, timeout int) bool {
 			time.Sleep(5 * time.Second) // Wait before retry
 		}
 	}
+	return fmt.Errorf("[MAX RETRIES EXCEEDED]: %s", url)
 }
 
 
