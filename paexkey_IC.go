@@ -93,22 +93,10 @@ func main() {
 
 	flag.Parse()
 
-    	var internetAvailable sync.WaitGroup
+	connected := make(chan struct{})
+	go isInternetConnected(connected)
+	<-connected
 
-    	// Function to check and wait for internet connectivity
-    	waitForInternet := func() {
-        	for !isInternetConnected() {
-            	time.Sleep(1 * time.Second) // Wait for 1 seconds before rechecking
-        	}
-        	internetAvailable.Done()
-    	}
-
-    	// Start the routine to wait for internet connectivity
-    	internetAvailable.Add(1)
-    	go waitForInternet()
-
-    	// Wait for internet connectivity
-    	internetAvailable.Wait()
 
 	// Create a wait group to wait for the goroutine to finish
 	var wg sync.WaitGroup
@@ -707,6 +695,10 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 
 func isURLAlive(url string, timeout int) bool {
 
+	connected := make(chan struct{})
+	go isInternetConnected(connected)
+	<-connected
+
 	// Attempt to resolve the hostname from the URL
 	host, err := extractHostname(url)
 	if err != nil {
@@ -769,16 +761,23 @@ func isURLAlive(url string, timeout int) bool {
 }
 
 
-func isInternetConnected() bool {
-	for {
+func isInternetConnected(connected chan struct{}) {
+	// Function to check for internet connectivity
+	checkConnectivity := func() bool {
 		for _, dnsServer := range dnsServers {
 			_, err := net.LookupHost(dnsServer)
 			if err == nil {
 				return true
 			}
 		}
-
-		log.Println("Waiting for internet connection...")
-		time.Sleep(5 * time.Second) // Wait for 5 seconds before rechecking
+		return false
 	}
+
+	for !checkConnectivity() {
+		log.Println("Waiting for internet connection...")
+		// Wait for a while before checking again
+		time.Sleep(1 * time.Second)
+	}
+	// Signal that the internet connection is established
+	close(connected)
 }
