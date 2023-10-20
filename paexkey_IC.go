@@ -136,6 +136,7 @@ func main() {
 		// get each line of stdin, push it to the work channel
 		s := bufio.NewScanner(os.Stdin)
 		for s.Scan() {
+			waitForInternetConnection()
 			url := s.Text()
 			hostname, err := extractHostname(url)
 			if err != nil {
@@ -461,26 +462,25 @@ func main() {
 					TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
 				})
 			}
+
 			if *timeout == -1 || isURLAlive(url, *timeout) {
-			    // Check if URL is truly alive
-			    if isURLAlive(url, *timeout) {
-				// Start scraping
-				c.Visit(url)
-				// Wait until threads are finished
-				c.Wait()
-				runtime.GC()
-				log.Println("[CRAWLED]: " + url)
-				break  // Exit the loop after successful visit
-			    } else {
+				// Check if URL is truly alive
+				if isURLAlive(url, *timeout) {
+					// Start scraping
+					c.Visit(url)
+					// Wait until threads are finished
+					c.Wait()
+					runtime.GC()
+					log.Println("[CRAWLED]: " + url)
+				} else {
+					log.Println("[URL UNREACHABLE]: " + url)
+					runtime.GC()
+				}
+			} else {
 				log.Println("[URL UNREACHABLE]: " + url)
 				runtime.GC()
-				break  // Exit the loop if the URL is unreachable
-			    }
-			} else {
-			    log.Println("[URL UNREACHABLE]: " + url)
-			    runtime.GC()
-			    break  // Exit the loop if the URL is unreachable
 			}
+
 		}
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
@@ -690,76 +690,95 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 }
 
 func isURLAlive(url string, timeout int) bool {
+	// Check for network connectivity
 	for {
 		if isInternetConnected() {
-			// Attempt to resolve the hostname from the URL
-			host, err := extractHostname(url)
-			if err != nil {
-				log.Printf("[INVALID URL]: %s\n", url)
-				return false
-			}
+			break
+		}
+		log.Println("Waiting for internet connection...")
+		time.Sleep(1 * time.Second) // Wait for 30 seconds before rechecking
+	}
 
-			// Check DNS resolution
-			ips, err := net.LookupIP(host)
-			if err != nil {
-				return false
-			}
+	// Attempt to resolve the hostname from the URL
+	host, err := extractHostname(url)
+	if err != nil {
+		log.Printf("[INVALID URL]: %s\n", url)
+		return false
+	}
 
-			if len(ips) == 0 {
-				return false
-			}
+	// Check DNS resolution
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// log.Printf("[DNS ERROR]: Unable to resolve host %s: %v\n", host, err)
+		return false
+	}
 
-			// Define the maximum number of retries
-			maxRetries := 4
-			for i := 0; i < maxRetries; i++ {
-				client := http.Client{
-					Timeout: time.Duration(timeout) * time.Second,
-				}
-				resp, err := client.Head(url)
-				if err != nil {
-					// Handle network errors
-					time.Sleep(15 * time.Second) // Wait before retry
-					continue
-				}
-				defer resp.Body.Close()
+	if len(ips) == 0 {
+		// log.Printf("[NO IP ADDRESSES]: No IP addresses found for host %s\n", host)
+		return false
+	}
 
-				if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-					// URL is alive and within expected range (200-399)
-					return true
-				} else if resp.StatusCode == http.StatusTooManyRequests {
-					// Handle rate limiting or temporary unavailability
-					time.Sleep(20 * time.Second) // Wait before retry
-				} else if resp.StatusCode >= 500 {
-					// Retry if it's a server error (500+)
-					time.Sleep(10 * time.Second)
-				} else if resp.StatusCode == 404 || resp.StatusCode == 403 || resp.StatusCode == 401 || resp.StatusCode == 400 {
-					// Skip the URL for specific status codes (400, 401, 403, 404)
-					return false
-				} else {
-					// Handle other non-OK status codes
-					log.Printf("[HTTP STATUS]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
-					time.Sleep(5 * time.Second) // Wait before retry
-				}
-			}
+	// Define the maximum number of retries
+	maxRetries := 4
+	for i := 0; i < maxRetries; i++ {
+		client := http.Client{
+			Timeout: time.Duration(timeout) * time.Second,
+		}
+		resp, err := client.Head(url)
+		if err != nil {
+			// Handle network errors
+			// log.Printf("[NETWORK ERROR]: %s, Retry #%d\n", url, i+1)
+			time.Sleep(15 * time.Second) // Wait before retry
+			continue
+		}
+		defer resp.Body.Close()
 
-			// All retries failed, URL is not reachable
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			// URL is alive and within expected range (200-399)
+			return true
+		} else if resp.StatusCode == http.StatusTooManyRequests {
+			// Handle rate limiting or temporary unavailability
+			// log.Printf("[RATE LIMITING]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
+			time.Sleep(20 * time.Second) // Wait before retry
+		} else if resp.StatusCode >= 500 {
+			// Retry if it's a server error (500+)
+			// log.Printf("[RETRYING]: %s - Status: %d\n", url, resp.StatusCode)
+			time.Sleep(10 * time.Second)
+		} else if resp.StatusCode == 404 || resp.StatusCode == 403 || resp.StatusCode == 401 || resp.StatusCode == 400 {
+			// Skip the URL for specific status codes (400, 401, 403, 404)
+			// log.Printf("[SKIPPING]: %s - Status: %d\n", url, resp.StatusCode)
 			return false
+		} else {
+			// Handle other non-OK status codes
+			log.Printf("[HTTP STATUS]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
+			time.Sleep(5 * time.Second) // Wait before retry
 		}
 	}
+
+	// All retries failed, URL is not reachable
+	// log.Printf("[URL UNREACHABLE]: %s\n", url)
+	return false
 }
 
 
+func waitForInternetConnection() {
+	for {
+		if isInternetConnected() {
+			break
+		}
+		log.Println("Waiting for internet connection...")
+		time.Sleep(3 * time.Second) // Wait for 3 seconds before rechecking
+	}
+}
 
 func isInternetConnected() bool {
-	for {
-		for _, dnsServer := range dnsServers {
-			_, err := net.LookupHost(dnsServer)
-			if err == nil {
-				return true
-			} else{
-				log.Println("Waiting for internet connection...")
-			}
+	for _, dnsServer := range dnsServers {
+		_, err := net.Dial("tcp", dnsServer+":53")
+		if err == nil {
+			return true
 		}
-		time.Sleep(1 * time.Second) // Wait for 5 seconds before rechecking
 	}
+
+	time.Sleep(2 * time.Second) // Wait for 2 seconds before rechecking
+	return false
 }
