@@ -27,46 +27,6 @@ type Result struct {
 	Where  string
 }
 
-var dnsServers = []string{
-	"8.8.8.8",   // Google Public DNS (IPv4)
-	"1.1.1.1",   // Cloudflare DNS (IPv4)
-	"208.67.222.222", // OpenDNS (IPv4)
-	"9.9.9.9",   // Quad9 DNS (IPv4)
-	"75.75.75.75", // Comcast DNS (IPv4)
-	"2001:4860:4860::8888", // Google Public DNS (IPv6)
-	"2606:4700:4700::1111", // Cloudflare DNS (IPv6)
-	"2620:0:ccc::2", // OpenDNS (IPv6)
-	"2620:fe::9",    // Quad9 DNS (IPv6)
-	"2001:558:feed::1", // Comcast DNS (IPv6)
-	"209.244.0.3",
-	"209.244.0.4",
-	"8.8.4.4",
-	"8.26.56.26",
-	"8.20.247.20",
-	"208.67.222.222",
-	"208.67.220.220",
-	"156.154.70.1",
-	"156.154.71.1",
-	"199.85.126.10",
-	"199.85.127.10",
-	"81.218.119.11",
-	"209.88.198.133",
-	"195.46.39.39",
-	"195.46.39.40",
-	"216.87.84.211",
-	"23.90.4.6",
-	"199.5.157.131",
-	"208.71.35.137",
-	"208.76.50.50",
-	"208.76.51.51",
-	"216.146.35.35",
-	"216.146.36.36",
-	"89.233.43.71",
-	"89.104.194.142",
-	"74.82.42.42",
-	"109.69.8.51",
-}
-
 var headers map[string]string
 var keywords []string
 var keywordMatchedURLs []string
@@ -689,14 +649,6 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 }
 
 func isURLAlive(url string, timeout int) bool {
-	// Check for network connectivity
-	for {
-		if isInternetConnected() {
-			break
-		}
-		log.Println("Waiting for internet connection...")
-		time.Sleep(1 * time.Second) // Wait for 30 seconds before rechecking
-	}
 
 	// Attempt to resolve the hostname from the URL
 	host, err := extractHostname(url)
@@ -753,20 +705,8 @@ func isURLAlive(url string, timeout int) bool {
 			time.Sleep(5 * time.Second) // Wait before retry
 		}
 	}
-	return fmt.Errorf("[MAX RETRIES EXCEEDED]: %s", url)
-}
 
-
-func isInternetConnected() bool {
-	for {
-		for _, dnsServer := range dnsServers {
-			_, err := net.LookupHost(dnsServer)
-			if err == nil {
-				return true
-			} else {
-				log.Println("Waiting for internet connection...")
-			}
-		}
-		time.Sleep(5 * time.Second) // Wait for 5 seconds before rechecking
-	}
+	// All retries failed, URL is not reachable
+	// log.Printf("[URL UNREACHABLE]: %s\n", url)
+	return false
 }
