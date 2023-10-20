@@ -93,22 +93,22 @@ func main() {
 
 	flag.Parse()
 
-    var internetAvailable sync.WaitGroup
+    	var internetAvailable sync.WaitGroup
 
-    // Function to check and wait for internet connectivity
-    waitForInternet := func() {
-        for !isInternetConnected() {
-            time.Sleep(1 * time.Second) // Wait for 1 seconds before rechecking
-        }
-        internetAvailable.Done()
-    }
+    	// Function to check and wait for internet connectivity
+    	waitForInternet := func() {
+        	for !isInternetConnected() {
+            	time.Sleep(1 * time.Second) // Wait for 1 seconds before rechecking
+        	}
+        	internetAvailable.Done()
+    	}
 
-    // Start the routine to wait for internet connectivity
-    internetAvailable.Add(1)
-    go waitForInternet()
+    	// Start the routine to wait for internet connectivity
+    	internetAvailable.Add(1)
+    	go waitForInternet()
 
-    // Wait for internet connectivity
-    internetAvailable.Wait()
+    	// Wait for internet connectivity
+    	internetAvailable.Wait()
 
 	// Create a wait group to wait for the goroutine to finish
 	var wg sync.WaitGroup
