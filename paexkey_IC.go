@@ -136,7 +136,6 @@ func main() {
 		// get each line of stdin, push it to the work channel
 		s := bufio.NewScanner(os.Stdin)
 		for s.Scan() {
-			waitForInternetConnection()
 			url := s.Text()
 			hostname, err := extractHostname(url)
 			if err != nil {
@@ -754,31 +753,19 @@ func isURLAlive(url string, timeout int) bool {
 			time.Sleep(5 * time.Second) // Wait before retry
 		}
 	}
-
-	// All retries failed, URL is not reachable
-	// log.Printf("[URL UNREACHABLE]: %s\n", url)
-	return false
 }
 
-
-func waitForInternetConnection() {
-	for {
-		if isInternetConnected() {
-			break
-		}
-		log.Println("Waiting for internet connection...")
-		time.Sleep(3 * time.Second) // Wait for 3 seconds before rechecking
-	}
-}
 
 func isInternetConnected() bool {
-	for _, dnsServer := range dnsServers {
-		_, err := net.Dial("tcp", dnsServer+":53")
-		if err == nil {
-			return true
+	for {
+		for _, dnsServer := range dnsServers {
+			_, err := net.LookupHost(dnsServer)
+			if err == nil {
+				return true
+			} else {
+				log.Println("Waiting for internet connection...")
+			}
 		}
+		time.Sleep(5 * time.Second) // Wait for 5 seconds before rechecking
 	}
-
-	time.Sleep(2 * time.Second) // Wait for 2 seconds before rechecking
-	return false
 }
