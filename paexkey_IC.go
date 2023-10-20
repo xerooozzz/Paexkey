@@ -93,11 +93,6 @@ func main() {
 
 	flag.Parse()
 
-	connected := make(chan struct{})
-	go isInternetConnected(connected)
-	<-connected
-
-
 	// Create a wait group to wait for the goroutine to finish
 	var wg sync.WaitGroup
 
@@ -468,23 +463,24 @@ func main() {
 			}
 
 			if *timeout == -1 || isURLAlive(url, *timeout) {
-				// Check if URL is truly alive
-				if isURLAlive(url, *timeout) {
-					// Start scraping
-					c.Visit(url)
-					// Wait until threads are finished
-					c.Wait()
-					runtime.GC()
-					log.Println("[CRAWLED]: " + url)
-				} else {
-					log.Println("[URL UNREACHABLE]: " + url)
-					runtime.GC()
-				}
+			    // Check if URL is truly alive within the specified timeout
+			    for {
+			        if isInternetConnected() {
+			            log.Println("[CRAWLING]: " + url)
+			            // Start scraping
+			            c.Visit(url)
+			            // Wait until threads are finished
+			            c.Wait()
+			            runtime.GC()
+			            break // Exit the loop once the scraping is done
+			        }
+			        log.Println("Waiting for internet connection...")
+			        time.Sleep(1 * time.Second) // Wait for 1 second before rechecking
+			    }
 			} else {
-				log.Println("[URL UNREACHABLE]: " + url)
-				runtime.GC()
+			    log.Println("[URL UNREACHABLE]: " + url)
+			    runtime.GC()
 			}
-
 		}
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
@@ -695,10 +691,6 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 
 func isURLAlive(url string, timeout int) bool {
 
-	connected := make(chan struct{})
-	go isInternetConnected(connected)
-	<-connected
-
 	// Attempt to resolve the hostname from the URL
 	host, err := extractHostname(url)
 	if err != nil {
@@ -761,23 +753,30 @@ func isURLAlive(url string, timeout int) bool {
 }
 
 
-func isInternetConnected(connected chan struct{}) {
-	// Function to check for internet connectivity
-	checkConnectivity := func() bool {
-		for _, dnsServer := range dnsServers {
-			_, err := net.LookupHost(dnsServer)
-			if err == nil {
-				return true
-			}
-		}
-		return false
-	}
+func isInternetConnected() bool {
+	connected := make(chan bool) // Create a channel to signal internet connectivity
 
-	for !checkConnectivity() {
-		log.Println("Waiting for internet connection...")
-		// Wait for a while before checking again
-		time.Sleep(1 * time.Second)
+	go func() {
+		for {
+			for _, dnsServer := range dnsServers {
+				_, err := net.LookupHost(dnsServer)
+				if err == nil {
+					connected <- true // Signal that internet is connected
+					return
+				}
+			}
+
+			log.Println("Waiting for internet connection...")
+			time.Sleep(5 * time.Second) // Wait for 5 seconds before rechecking
+		}
+	}()
+
+	// Wait for the connectivity signal or a timeout
+	select {
+	case <-connected:
+		return true
+	case <-time.After(3 * time.Second): // Adjust the timeout duration as needed
+	// Continue the loop to keep checking for internet connectivity
+		continue
 	}
-	// Signal that the internet connection is established
-	close(connected)
 }
