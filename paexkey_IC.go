@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -18,7 +19,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/gocolly/colly/v2"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Result struct {
@@ -27,17 +30,25 @@ type Result struct {
 	Where  string
 }
 
+var headers map[string]string
+var keywords []string
+var keywordMatchedURLs []string
+var mutex = &sync.Mutex{}
+
+// Thread safe map
+var sm sync.Map
+
 var dnsServers = []string{
-	"8.8.8.8",   // Google Public DNS (IPv4)
-	"1.1.1.1",   // Cloudflare DNS (IPv4)
-	"208.67.222.222", // OpenDNS (IPv4)
-	"9.9.9.9",   // Quad9 DNS (IPv4)
-	"75.75.75.75", // Comcast DNS (IPv4)
+	"8.8.8.8",              // Google Public DNS (IPv4)
+	"1.1.1.1",              // Cloudflare DNS (IPv4)
+	"208.67.222.222",       // OpenDNS (IPv4)
+	"9.9.9.9",              // Quad9 DNS (IPv4)
+	"75.75.75.75",          // Comcast DNS (IPv4)
 	"2001:4860:4860::8888", // Google Public DNS (IPv6)
 	"2606:4700:4700::1111", // Cloudflare DNS (IPv6)
-	"2620:0:ccc::2", // OpenDNS (IPv6)
-	"2620:fe::9",    // Quad9 DNS (IPv6)
-	"2001:558:feed::1", // Comcast DNS (IPv6)
+	"2620:0:ccc::2",        // OpenDNS (IPv6)
+	"2620:fe::9",           // Quad9 DNS (IPv6)
+	"2001:558:feed::1",     // Comcast DNS (IPv6)
 	"209.244.0.3",
 	"209.244.0.4",
 	"8.8.4.4",
@@ -67,14 +78,6 @@ var dnsServers = []string{
 	"109.69.8.51",
 }
 
-var headers map[string]string
-var keywords []string
-var keywordMatchedURLs []string
-var mutex = &sync.Mutex{}
-
-// Thread safe map
-var sm sync.Map
-
 func main() {
 	inside := flag.Bool("i", false, "Only crawl inside path")
 	threads := flag.Int("t", 8, "Number of threads to utilize.")
@@ -93,10 +96,25 @@ func main() {
 
 	flag.Parse()
 
-	// Create a wait group to wait for the goroutine to finish
-	var wg sync.WaitGroup
+	db, err := sql.Open("sqlite3", "crawler.db")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Open the file for writing or append if it exists
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS crawled_urls (
+		url TEXT PRIMARY KEY,
+		source TEXT,
+		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create a Bloom filter with an estimated number of unique URLs and a desired false positive rate
+	estimatedURLs := 1000000  // Adjust this number based on your expected workload
+	falsePositiveRate := 0.01 // Adjust this rate as needed
+	bloomFilter := bloom.NewWithEstimates(uint(estimatedURLs), falsePositiveRate)
+
 	outputFile, err := os.OpenFile("matched_urls.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -121,6 +139,24 @@ func main() {
 	}
 	proxyURL, _ := url.Parse(os.Getenv("PROXY"))
 
+	rows, err := db.Query("SELECT url FROM crawled_urls")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	// Iterate over the rows and add the URLs to a data structure for reference during crawling.
+	var processedURLs []string
+	for rows.Next() {
+		var url string
+		err := rows.Scan(&url)
+		if err != nil {
+			log.Println("Error scanning row:", err)
+			continue
+		}
+		processedURLs = append(processedURLs, url)
+	}
+
 	// Check for stdin input
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
@@ -129,10 +165,7 @@ func main() {
 	}
 
 	results := make(chan string, *threads)
-	// Increment the wait group counter
-	wg.Add(1)
 	go func() {
-		defer wg.Done() // Decrement the wait group counter when done
 		// get each line of stdin, push it to the work channel
 		s := bufio.NewScanner(os.Stdin)
 		for s.Scan() {
@@ -141,6 +174,10 @@ func main() {
 			if err != nil {
 				log.Println("Error parsing URL:", err)
 				continue
+			}
+
+			if isProcessed(url, processedURLs) {
+				continue // Skip this URL, it's already processed
 			}
 
 			allowed_domains := []string{hostname}
@@ -183,6 +220,7 @@ func main() {
 			// Set parallelism
 			c.Limit(&colly.LimitRule{DomainGlob: "*", Parallelism: *threads})
 
+			// Print every href found, and visit it
 			// Print every href found, and visit it
 			c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 				link := e.Attr("href")
@@ -440,6 +478,13 @@ func main() {
 				}
 			})
 
+			_, err = db.Exec("INSERT OR IGNORE INTO crawled_urls (url) VALUES (?)", url)
+			if err != nil {
+				log.Println("Error inserting URL:", err)
+			}
+
+			processedURLs = append(processedURLs, url)
+
 			// add the custom headers
 			if headers != nil {
 				c.OnRequest(func(r *colly.Request) {
@@ -462,64 +507,62 @@ func main() {
 				})
 			}
 
-			if *timeout == -1 || isURLAlive(url, *timeout) {
-			    // Check if URL is truly alive within the specified timeout
-			    for {
-			        if isInternetConnected() {
-			            log.Println("[CRAWLING]: " + url)
-			            // Start scraping
-			            c.Visit(url)
-			            // Wait until threads are finished
-			            c.Wait()
-			            runtime.GC()
-			            break // Exit the loop once the scraping is done
-			        }
-			        log.Println("Waiting for internet connection...")
-			        time.Sleep(1 * time.Second) // Wait for 1 second before rechecking
-			    }
-			} else {
-			    log.Println("[URL UNREACHABLE]: " + url)
-			    runtime.GC()
+			for {
+				if isInternetConnected() {
+					if *timeout == -1 || isURLAlive(url, *timeout) {
+						// Check if URL is truly alive
+						if isURLAlive(url, *timeout) {
+							// Start scraping
+							c.Visit(url)
+							// Wait until threads are finished
+							c.Wait()
+							runtime.GC()
+							log.Println("[CRAWLED]: " + url)
+						} else {
+							log.Println("[URL UNREACHABLE]: " + url)
+							runtime.GC()
+						}
+					} else {
+						log.Println("[URL UNREACHABLE]: " + url)
+						runtime.GC()
+					}
+				}
+				log.Println("Waiting for internet connection...")
+				time.Sleep(1 * time.Second) // Wait for 30 seconds before rechecking
 			}
+
 		}
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
 		}
+		close(results)
+		defer db.Close()
 	}()
-
-	// Wait for the goroutine to complete with a timeout
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		// Wait for a reasonable amount of time (adjust as needed)
-		timeoutDuration := time.Duration(*timeout) * time.Second
-		select {
-		case <-time.After(timeoutDuration):
-			log.Println("[DONE]: Closing goroutine as it complete")
-		case <-done:
-			// The goroutine completed successfully
-		}
-	}()
-
-	// Wait for the goroutine to complete
-	wg.Wait()
-
-	// Close the results channel
-	close(results)
 
 	w := bufio.NewWriter(os.Stdout)
 	defer w.Flush()
 	if *unique {
 		for res := range results {
 			if isUnique(res) {
-				// Print the unique URL
-				fmt.Fprintln(w, res)
+				if !bloomFilter.Test([]byte(res)) {
+					// Add the URL to the Bloom filter
+					bloomFilter.Add([]byte(res))
+
+					// Print the unique URL
+					fmt.Fprintln(w, res)
+				}
 			}
 		}
 	}
 	for res := range results {
-		// Print the unique URL
-		fmt.Fprintln(w, res)
+		// Check if the URL is in the Bloom filter (visited)
+		if !bloomFilter.Test([]byte(res)) {
+			// Add the URL to the Bloom filter
+			bloomFilter.Add([]byte(res))
+
+			// Print the unique URL
+			fmt.Fprintln(w, res)
+		}
 	}
 }
 
@@ -557,6 +600,7 @@ func extractHostname(urlString string) (string, error) {
 	return u.Hostname(), nil
 }
 
+// Modify the printResult function to accept an outputWriter parameter
 func printResult(link string, sourceName string, showSource bool, showWhere bool, showJson bool, results chan string, e *colly.HTMLElement, outputWriter *bufio.Writer) {
 	// Check if keywords are provided and if any of them are present in the URL
 	if len(keywords) == 0 || containsKeyword(link, keywords) {
@@ -689,6 +733,16 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 	return keywords, nil
 }
 
+// isProcessed checks if a URL is already processed in the database.
+func isProcessed(url string, processedURLs []string) bool {
+	for _, processed := range processedURLs {
+		if processed == url {
+			return true
+		}
+	}
+	return false
+}
+
 func isURLAlive(url string, timeout int) bool {
 
 	// Attempt to resolve the hostname from the URL
@@ -752,32 +806,16 @@ func isURLAlive(url string, timeout int) bool {
 	return false
 }
 
-
 func isInternetConnected() bool {
-	connected := make(chan bool) // Create a channel to signal internet connectivity
-
-	go func() {
-		for {
-			for _, dnsServer := range dnsServers {
-				_, err := net.LookupHost(dnsServer)
-				if err == nil {
-					connected <- true // Signal that the internet is connected
-					return
-				}
-			}
-
-			log.Println("Waiting for internet connection...")
-			time.Sleep(5 * time.Second) // Wait for 5 seconds before rechecking
-		}
-	}()
-
-	// This will be an infinite loop
 	for {
-		select {
-		case <-connected:
-			return true
+		for _, dnsServer := range dnsServers {
+			_, err := net.LookupHost(dnsServer)
+			if err == nil {
+				return true
+			}
 		}
+
+		log.Println("Waiting for internet connection...")
+		time.Sleep(5 * time.Second) // Wait for 5 seconds before rechecking
 	}
 }
-
-
