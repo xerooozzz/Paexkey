@@ -771,12 +771,13 @@ func isInternetConnected() bool {
 		}
 	}()
 
-	// Wait for the connectivity signal or a timeout
-	select {
-	case <-connected:
-		return true
-	case <-time.After(3 * time.Second): // Adjust the timeout duration as needed
-		// Continue the loop to keep checking for internet connectivity
+	// This will be an infinite loop
+	for {
+		select {
+		case <-connected:
+			return true
+		}
 	}
 }
+
 
