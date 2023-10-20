@@ -761,7 +761,7 @@ func isInternetConnected() bool {
 			for _, dnsServer := range dnsServers {
 				_, err := net.LookupHost(dnsServer)
 				if err == nil {
-					connected <- true // Signal that internet is connected
+					connected <- true // Signal that the internet is connected
 					return
 				}
 			}
@@ -776,7 +776,7 @@ func isInternetConnected() bool {
 	case <-connected:
 		return true
 	case <-time.After(3 * time.Second): // Adjust the timeout duration as needed
-	// Continue the loop to keep checking for internet connectivity
-		continue
+		// Continue the loop to keep checking for internet connectivity
 	}
 }
+
