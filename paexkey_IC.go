@@ -463,27 +463,29 @@ func main() {
 			}
 
 			for {
-				if isInternetConnected() {
-					if *timeout == -1 || isURLAlive(url, *timeout) {
-						// Check if URL is truly alive
-						if isURLAlive(url, *timeout) {
-							// Start scraping
-							c.Visit(url)
-							// Wait until threads are finished
-							c.Wait()
-							runtime.GC()
-							log.Println("[CRAWLED]: " + url)
-						} else {
-							log.Println("[URL UNREACHABLE]: " + url)
-							runtime.GC()
-						}
-					} else {
-						log.Println("[URL UNREACHABLE]: " + url)
-						runtime.GC()
-					}
-				}
+			    if isInternetConnected() {
+			        if *timeout == -1 || isURLAlive(url, *timeout) {
+			            // Check if URL is truly alive
+			            if isURLAlive(url, *timeout) {
+			                // Start scraping
+			                c.Visit(url)
+			                // Wait until threads are finished
+			                c.Wait()
+			                runtime.GC()
+			                log.Println("[CRAWLED]: " + url)
+			                break  // Exit the loop after successful visit
+			            } else {
+			                log.Println("[URL UNREACHABLE]: " + url)
+			                runtime.GC()
+			                break  // Exit the loop if the URL is unreachable
+			            }
+			        } else {
+			            log.Println("[URL UNREACHABLE]: " + url)
+			            runtime.GC()
+			            break  // Exit the loop if the URL is unreachable
+			        }
+			    }
 			}
-
 		}
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
@@ -762,10 +764,10 @@ func isInternetConnected() bool {
 			_, err := net.LookupHost(dnsServer)
 			if err == nil {
 				return true
+			} else{
+				log.Println("Waiting for internet connection...")
 			}
 		}
-
-		log.Println("Waiting for internet connection...")
-		time.Sleep(5 * time.Second) // Wait for 5 seconds before rechecking
+		time.Sleep(1 * time.Second) // Wait for 5 seconds before rechecking
 	}
 }
