@@ -698,12 +698,6 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 }
 
 func isURLAlive(url string, timeout int) bool {
-	// Attempt to resolve the hostname from the URL
-	host, err := extractHostname(url)
-	if err != nil {
-		log.Printf("[INVALID URL]: %s\n", url)
-		return false
-	}
 
 	// Define a custom HTTP client with a timeout
 	client := &http.Client{
