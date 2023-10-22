@@ -103,11 +103,6 @@ func main() {
 	sem := make(chan struct{}, windowSize)
 	
 	results := make(chan string)
-
-	// Create a semaphore channel for controlling the sliding window
-	sem := make(chan struct{}, windowSize)
-	
-	results := make(chan string)
 	
 	// Create a goroutine to process results
 	go func() {
