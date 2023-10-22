@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"math/rand"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -97,7 +96,34 @@ func main() {
 		os.Exit(1)
 	}
 
-	results := make(chan string, *threads)
+	// Define the sliding window size
+	windowSize := *threads
+	
+	// Create a semaphore channel for controlling the sliding window
+	sem := make(chan struct{}, windowSize)
+	
+	results := make(chan string)
+
+	// Create a semaphore channel for controlling the sliding window
+	sem := make(chan struct{}, windowSize)
+	
+	results := make(chan string)
+	
+	// Create a goroutine to process results
+	go func() {
+	    for result := range results {
+	        // Acquire a semaphore to control the concurrency
+	        sem <- struct{}{}
+	        go func(result string) {
+	            defer func() {
+	                // Release the semaphore
+	                <-sem
+	            }()
+	            // Process the result here
+	        }(result)
+	    }
+	}()
+
 	// Increment the wait group counter
 	wg.Add(1)
 	go func() {
@@ -475,6 +501,9 @@ func main() {
 	// Close the results channel
 	close(results)
 
+	// Close the semaphore channel
+	close(sem)
+
 	w := bufio.NewWriter(os.Stdout)
 	defer w.Flush()
 	if *unique {
@@ -489,6 +518,7 @@ func main() {
 		// Print the unique URL
 		fmt.Fprintln(w, res)
 	}
+	runtime.GC()
 }
 
 // parseHeaders does validation of headers input and saves it to a formatted map.
