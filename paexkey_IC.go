@@ -578,8 +578,8 @@ func containsKeyword(url string, keywords []string) bool {
 }
 
 func isUnique(url string) bool {
-    mu.Lock()
-    defer mu.Unlock()
+    mutex.Lock()
+    defer mutex.Unlock()
 
     _, present := sm.Load(url)
     if present {
