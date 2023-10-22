@@ -52,7 +52,6 @@ func main() {
 	keywordFile := flag.String("k", "", "Path to a wordlist file containing keywords.")
 
 	flag.Parse()
-	runtime.GC()
 
 	for {
 		if isInternetConnected() {
@@ -72,9 +71,8 @@ func main() {
 	}
 	defer outputFile.Close()
 
-	// Create a writer for the output file
-	const bufferSize = 5 * 1024 * 1024 // 5MB
-	outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
+	// Create a writer for the output file with a larger buffer size
+	outputWriter := bufio.NewWriter(outputFile) // No need to specify the buffer size, it uses a reasonable default
 	defer outputWriter.Flush()
 
 	if *keywordFile != "" {
@@ -97,29 +95,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Define the sliding window size
-	windowSize := *threads
-	
-	// Create a semaphore channel for controlling the sliding window
-	sem := make(chan struct{}, windowSize)
-	
-	results := make(chan string)
-	
-	// Create a goroutine to process results
-	go func() {
-	    for result := range results {
-	        // Acquire a semaphore to control the concurrency
-	        sem <- struct{}{}
-	        go func(result string) {
-	            defer func() {
-	                // Release the semaphore
-	                <-sem
-	            }()
-	            // Process the result here
-	        }(result)
-	    }
-	}()
-
+	results := make(chan string, *threads)
 	// Increment the wait group counter
 	wg.Add(1)
 	go func() {
@@ -454,23 +430,16 @@ func main() {
 			}
 
 			if *timeout == -1 || isURLAlive(url, *timeout) {
-				// Check if URL is truly alive
-				if isURLAlive(url, *timeout) {
-					// Start scraping
-					c.Visit(url)
-					// Wait until threads are finished
-					c.Wait()
-					runtime.GC()
-					log.Println("[CRAWLED]: " + url)
-				} else {
-					log.Println("[URL UNREACHABLE]: " + url)
-					runtime.GC()
-				}
+				// Start scraping
+				c.Visit(url)
+				// Wait until threads are finished
+				c.Wait()
+				runtime.GC()
+				log.Println("[CRAWLED]: " + url)
 			} else {
 				log.Println("[URL UNREACHABLE]: " + url)
 				runtime.GC()
 			}
-
 		}
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
@@ -486,7 +455,7 @@ func main() {
 		timeoutDuration := time.Duration(*timeout) * time.Second
 		select {
 		case <-time.After(timeoutDuration):
-			log.Println("[DONE]: Closing goroutine as it complete")
+			// log.Println("[DONE]: Closing goroutine as it complete")
 		case <-done:
 			// The goroutine completed successfully
 		}
@@ -497,9 +466,6 @@ func main() {
 
 	// Close the results channel
 	close(results)
-
-	// Close the semaphore channel
-	close(sem)
 
 	w := bufio.NewWriter(os.Stdout)
 	defer w.Flush()
@@ -599,7 +565,6 @@ func printResult(link string, sourceName string, showSource bool, showWhere bool
 			defer mutex.Unlock()
 		}
 	}
-	runtime.GC()
 }
 
 // Function to check if any keyword is present in the URL
@@ -612,14 +577,16 @@ func containsKeyword(url string, keywords []string) bool {
 	return false
 }
 
-// returns whether the supplied url is unique or not
 func isUnique(url string) bool {
-	_, present := sm.Load(url)
-	if present {
-		return false
-	}
-	sm.Store(url, true)
-	return true
+    mu.Lock()
+    defer mu.Unlock()
+
+    _, present := sm.Load(url)
+    if present {
+        return false
+    }
+    sm.Store(url, true)
+    return true
 }
 
 func extractURLsFromJS(jsCode string) []string {
@@ -666,62 +633,41 @@ func extractURLsWithCustomPattern(body string) []string {
 }
 
 func loadKeywordsFromFile(filename string) ([]string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+    file, err := os.Open(filename)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
 
-	var keywords []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		keyword := scanner.Text()
-		keywords = append(keywords, keyword)
-	}
+    var keywords []string
+    scanner := bufio.NewScanner(file)
 
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
+    // Preallocate the keywords slice capacity to avoid reallocations
+    keywords = make([]string, 0, 10)  // Adjust 100 to a suitable capacity
 
-	return keywords, nil
+    for scanner.Scan() {
+        keyword := scanner.Text()
+        keywords = append(keywords, keyword)
+    }
+
+    if err := scanner.Err(); err != nil {
+        return nil, err
+    }
+
+    return keywords, nil
 }
 
 func isURLAlive(url string, timeout int) bool {
-
-	// Define a custom HTTP client with a timeout
-	client := &http.Client{
+	client := http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 	}
-
-	for i := 0; i < 4; i++ {
-		resp, err := client.Head(url)
-		if err != nil {
-			log.Printf("[NETWORK ERROR]: %s, Retry #%d\n", url, i+1)
-			time.Sleep(5 * time.Second) // Wait before retry
-			continue
-		}
-		defer resp.Body.Close()
-
-		switch resp.StatusCode {
-		case http.StatusTooManyRequests:
-			log.Printf("[RATE LIMITING]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
-			time.Sleep(20 * time.Second) // Wait before retry
-		case http.StatusOK, http.StatusNoContent, http.StatusPartialContent:
-			// URL is alive and within expected range (200, 204, 206)
-			return true
-		case http.StatusNotFound, http.StatusForbidden, http.StatusUnauthorized, http.StatusBadRequest:
-			log.Printf("[SKIPPING]: %s - Status: %d\n", url, resp.StatusCode)
-			return false
-		default:
-			log.Printf("[HTTP STATUS]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
-			time.Sleep(3 * time.Second) // Wait before retry
-		}
+	resp, err := client.Head(url)
+	if err != nil {
+		return false
 	}
-
-	log.Printf("[URL UNREACHABLE]: %s\n", url)
-	return false
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
-
 
 func isInternetConnected() bool {
 	// Check if there's an active network connection
