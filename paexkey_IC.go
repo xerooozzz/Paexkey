@@ -52,6 +52,7 @@ func main() {
 	keywordFile := flag.String("k", "", "Path to a wordlist file containing keywords.")
 
 	flag.Parse()
+	runtime.GC()
 
 	for {
 		if isInternetConnected() {
@@ -473,6 +474,7 @@ func main() {
 		}
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
+			runtime.GC()
 		}
 	}()
 
@@ -508,6 +510,7 @@ func main() {
 				fmt.Fprintln(w, res)
 			}
 		}
+		runtime.GC()
 	}
 	for res := range results {
 		// Print the unique URL
@@ -596,6 +599,7 @@ func printResult(link string, sourceName string, showSource bool, showWhere bool
 			defer mutex.Unlock()
 		}
 	}
+	runtime.GC()
 }
 
 // Function to check if any keyword is present in the URL
