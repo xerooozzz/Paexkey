@@ -53,14 +53,6 @@ func main() {
 
 	flag.Parse()
 
-	for {
-		if isInternetConnected() {
-			break
-		}
-		log.Println("Waiting for internet connection...")
-		time.Sleep(5 * time.Second)
-	}
-
 	// Create a wait group to wait for the goroutine to finish
 	var wg sync.WaitGroup
 
@@ -71,8 +63,9 @@ func main() {
 	}
 	defer outputFile.Close()
 
-	// Create a writer for the output file with a larger buffer size
-	outputWriter := bufio.NewWriter(outputFile) // No need to specify the buffer size, it uses a reasonable default
+	// Create a writer for the output file
+	const bufferSize = 10 * 1024 * 1024 // 20MB
+	outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
 	defer outputWriter.Flush()
 
 	if *keywordFile != "" {
@@ -430,20 +423,26 @@ func main() {
 			}
 
 			if *timeout == -1 || isURLAlive(url, *timeout) {
-				// Start scraping
-				c.Visit(url)
-				// Wait until threads are finished
-				c.Wait()
-				runtime.GC()
-				log.Println("[CRAWLED]: " + url)
+				// Check if URL is truly alive
+				if isURLAlive(url, *timeout) {
+					// Start scraping
+					c.Visit(url)
+					// Wait until threads are finished
+					c.Wait()
+					runtime.GC()
+					log.Println("[CRAWLED]: " + url)
+				} else {
+					log.Println("[URL UNREACHABLE]: " + url)
+					runtime.GC()
+				}
 			} else {
 				log.Println("[URL UNREACHABLE]: " + url)
 				runtime.GC()
 			}
+
 		}
 		if err := s.Err(); err != nil {
 			fmt.Fprintln(os.Stderr, "reading standard input:", err)
-			runtime.GC()
 		}
 	}()
 
@@ -455,7 +454,7 @@ func main() {
 		timeoutDuration := time.Duration(*timeout) * time.Second
 		select {
 		case <-time.After(timeoutDuration):
-			// log.Println("[DONE]: Closing goroutine as it complete")
+			log.Println("[DONE]: Closing goroutine as it complete}")
 		case <-done:
 			// The goroutine completed successfully
 		}
@@ -476,13 +475,11 @@ func main() {
 				fmt.Fprintln(w, res)
 			}
 		}
-		runtime.GC()
 	}
 	for res := range results {
 		// Print the unique URL
 		fmt.Fprintln(w, res)
 	}
-	runtime.GC()
 }
 
 // parseHeaders does validation of headers input and saves it to a formatted map.
@@ -577,16 +574,14 @@ func containsKeyword(url string, keywords []string) bool {
 	return false
 }
 
+// returns whether the supplied url is unique or not
 func isUnique(url string) bool {
-    mutex.Lock()
-    defer mutex.Unlock()
-
-    _, present := sm.Load(url)
-    if present {
-        return false
-    }
-    sm.Store(url, true)
-    return true
+	_, present := sm.Load(url)
+	if present {
+		return false
+	}
+	sm.Store(url, true)
+	return true
 }
 
 func extractURLsFromJS(jsCode string) []string {
@@ -633,40 +628,95 @@ func extractURLsWithCustomPattern(body string) []string {
 }
 
 func loadKeywordsFromFile(filename string) ([]string, error) {
-    file, err := os.Open(filename)
-    if err != nil {
-        return nil, err
-    }
-    defer file.Close()
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
 
-    var keywords []string
-    scanner := bufio.NewScanner(file)
+	var keywords []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		keyword := scanner.Text()
+		keywords = append(keywords, keyword)
+	}
 
-    // Preallocate the keywords slice capacity to avoid reallocations
-    keywords = make([]string, 0, 10)  // Adjust 100 to a suitable capacity
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
 
-    for scanner.Scan() {
-        keyword := scanner.Text()
-        keywords = append(keywords, keyword)
-    }
-
-    if err := scanner.Err(); err != nil {
-        return nil, err
-    }
-
-    return keywords, nil
+	return keywords, nil
 }
 
 func isURLAlive(url string, timeout int) bool {
-	client := http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+	// Check for network connectivity
+	for {
+		if isInternetConnected() {
+			break
+		}
+		log.Println("Waiting for internet connection...")
+		time.Sleep(30 * time.Second) // Wait for 30 seconds before rechecking
 	}
-	resp, err := client.Head(url)
+
+	// Attempt to resolve the hostname from the URL
+	host, err := extractHostname(url)
 	if err != nil {
+		log.Printf("[INVALID URL]: %s\n", url)
 		return false
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+
+	// Check DNS resolution
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// log.Printf("[DNS ERROR]: Unable to resolve host %s: %v\n", host, err)
+		return false
+	}
+
+	if len(ips) == 0 {
+		// log.Printf("[NO IP ADDRESSES]: No IP addresses found for host %s\n", host)
+		return false
+	}
+
+	// Define the maximum number of retries
+	maxRetries := 4
+	for i := 0; i < maxRetries; i++ {
+		client := http.Client{
+			Timeout: time.Duration(timeout) * time.Second,
+		}
+		resp, err := client.Head(url)
+		if err != nil {
+			// Handle network errors
+			// log.Printf("[NETWORK ERROR]: %s, Retry #%d\n", url, i+1)
+			time.Sleep(15 * time.Second) // Wait before retry
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			// URL is alive and within expected range (200-399)
+			return true
+		} else if resp.StatusCode == http.StatusTooManyRequests {
+			// Handle rate limiting or temporary unavailability
+			// log.Printf("[RATE LIMITING]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
+			time.Sleep(20 * time.Second) // Wait before retry
+		} else if resp.StatusCode >= 500 {
+			// Retry if it's a server error (500+)
+			// log.Printf("[RETRYING]: %s - Status: %d\n", url, resp.StatusCode)
+			time.Sleep(10 * time.Second)
+		} else if resp.StatusCode == 404 || resp.StatusCode == 403 || resp.StatusCode == 401 || resp.StatusCode == 400 {
+			// Skip the URL for specific status codes (400, 401, 403, 404)
+			// log.Printf("[SKIPPING]: %s - Status: %d\n", url, resp.StatusCode)
+			return false
+		} else {
+			// Handle other non-OK status codes
+			log.Printf("[HTTP STATUS]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
+			time.Sleep(5 * time.Second) // Wait before retry
+		}
+	}
+
+	// All retries failed, URL is not reachable
+	// log.Printf("[URL UNREACHABLE]: %s\n", url)
+	return false
 }
 
 func isInternetConnected() bool {
