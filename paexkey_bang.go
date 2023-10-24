@@ -35,46 +35,6 @@ var mutex = &sync.Mutex{}
 // Thread safe map
 var sm sync.Map
 
-var dnsServers = []string{
-	"8.8.8.8",   // Google Public DNS (IPv4)
-	"1.1.1.1",   // Cloudflare DNS (IPv4)
-	"208.67.222.222", // OpenDNS (IPv4)
-	"9.9.9.9",   // Quad9 DNS (IPv4)
-	"75.75.75.75", // Comcast DNS (IPv4)
-	"2001:4860:4860::8888", // Google Public DNS (IPv6)
-	"2606:4700:4700::1111", // Cloudflare DNS (IPv6)
-	"2620:0:ccc::2", // OpenDNS (IPv6)
-	"2620:fe::9",    // Quad9 DNS (IPv6)
-	"2001:558:feed::1", // Comcast DNS (IPv6)
-	"209.244.0.3",
-	"209.244.0.4",
-	"8.8.4.4",
-	"8.26.56.26",
-	"8.20.247.20",
-	"208.67.222.222",
-	"208.67.220.220",
-	"156.154.70.1",
-	"156.154.71.1",
-	"199.85.126.10",
-	"199.85.127.10",
-	"81.218.119.11",
-	"209.88.198.133",
-	"195.46.39.39",
-	"195.46.39.40",
-	"216.87.84.211",
-	"23.90.4.6",
-	"199.5.157.131",
-	"208.71.35.137",
-	"208.76.50.50",
-	"208.76.51.51",
-	"216.146.35.35",
-	"216.146.36.36",
-	"89.233.43.71",
-	"89.104.194.142",
-	"74.82.42.42",
-	"109.69.8.51",
-}
-
 func main() {
 	inside := flag.Bool("i", false, "Only crawl inside path")
 	threads := flag.Int("t", 8, "Number of threads to utilize.")
@@ -93,14 +53,6 @@ func main() {
 
 	flag.Parse()
 
-	for {
-		if isInternetConnected() {
-			break
-		}
-		log.Println("Waiting for internet connection...")
-		time.Sleep(5 * time.Second)
-	}
-
 	// Create a wait group to wait for the goroutine to finish
 	var wg sync.WaitGroup
 
@@ -112,7 +64,7 @@ func main() {
 	defer outputFile.Close()
 
 	// Create a writer for the output file
-	const bufferSize = 5 * 1024 * 1024 // 20MB
+	const bufferSize = 10 * 1024 * 1024 // 20MB
 	outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
 	defer outputWriter.Flush()
 
@@ -697,6 +649,14 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 }
 
 func isURLAlive(url string, timeout int) bool {
+	// Check for network connectivity
+	for {
+		if isInternetConnected() {
+			break
+		}
+		log.Println("Waiting for internet connection...")
+		time.Sleep(30 * time.Second) // Wait for 30 seconds before rechecking
+	}
 
 	// Attempt to resolve the hostname from the URL
 	host, err := extractHostname(url)
@@ -760,24 +720,19 @@ func isURLAlive(url string, timeout int) bool {
 }
 
 func isInternetConnected() bool {
-	rand.Seed(time.Now().UnixNano())
+	// Check if there's an active network connection
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Println("[INTERNET CHECK ERROR]:", err)
+		return false
+	}
 
-	// Shuffle the dnsServers slice randomly
-	shuffledDNS := make([]string, len(dnsServers))
-	copy(shuffledDNS, dnsServers)
-	rand.Shuffle(len(shuffledDNS), func(i, j int) {
-		shuffledDNS[i], shuffledDNS[j] = shuffledDNS[j], shuffledDNS[i]
-	})
-
-	for {
-		for _, dnsServer := range shuffledDNS {
-			_, err := net.LookupHost(dnsServer)
-			if err == nil {
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
 				return true
 			}
 		}
-
-		log.Println("Waiting for internet connection...")
-		time.Sleep(2 * time.Second) // Wait for 5 seconds before rechecking
 	}
+	return false
 }
