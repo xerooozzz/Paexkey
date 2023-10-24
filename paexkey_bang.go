@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"math/rand"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -27,6 +26,14 @@ type Result struct {
 	URL    string
 	Where  string
 }
+
+var headers map[string]string
+var keywords []string
+var keywordMatchedURLs []string
+var mutex = &sync.Mutex{}
+
+// Thread safe map
+var sm sync.Map
 
 var dnsServers = []string{
 	"8.8.8.8",   // Google Public DNS (IPv4)
@@ -68,14 +75,6 @@ var dnsServers = []string{
 	"109.69.8.51",
 }
 
-var headers map[string]string
-var keywords []string
-var keywordMatchedURLs []string
-var mutex = &sync.Mutex{}
-
-// Thread safe map
-var sm sync.Map
-
 func main() {
 	inside := flag.Bool("i", false, "Only crawl inside path")
 	threads := flag.Int("t", 8, "Number of threads to utilize.")
@@ -113,7 +112,7 @@ func main() {
 	defer outputFile.Close()
 
 	// Create a writer for the output file
-	const bufferSize = 5 * 1024 * 1024 // 5MB
+	const bufferSize = 10 * 1024 * 1024 // 20MB
 	outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
 	defer outputWriter.Flush()
 
@@ -503,7 +502,7 @@ func main() {
 		timeoutDuration := time.Duration(*timeout) * time.Second
 		select {
 		case <-time.After(timeoutDuration):
-			//log.Println("[DONE]: Closing goroutine as it complete")
+			log.Println("[DONE]: Closing goroutine as it complete")
 		case <-done:
 			// The goroutine completed successfully
 		}
@@ -698,6 +697,7 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 }
 
 func isURLAlive(url string, timeout int) bool {
+
 	// Attempt to resolve the hostname from the URL
 	host, err := extractHostname(url)
 	if err != nil {
@@ -705,40 +705,59 @@ func isURLAlive(url string, timeout int) bool {
 		return false
 	}
 
-	// Define a custom HTTP client with a timeout
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+	// Check DNS resolution
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// log.Printf("[DNS ERROR]: Unable to resolve host %s: %v\n", host, err)
+		return false
 	}
 
-	for i := 0; i < 4; i++ {
+	if len(ips) == 0 {
+		// log.Printf("[NO IP ADDRESSES]: No IP addresses found for host %s\n", host)
+		return false
+	}
+
+	// Define the maximum number of retries
+	maxRetries := 4
+	for i := 0; i < maxRetries; i++ {
+		client := http.Client{
+			Timeout: time.Duration(timeout) * time.Second,
+		}
 		resp, err := client.Head(url)
 		if err != nil {
-			//log.Printf("[NETWORK ERROR]: %s, Retry #%d\n", url, i+1)
-			time.Sleep(5 * time.Second) // Wait before retry
+			// Handle network errors
+			// log.Printf("[NETWORK ERROR]: %s, Retry #%d\n", url, i+1)
+			time.Sleep(15 * time.Second) // Wait before retry
 			continue
 		}
 		defer resp.Body.Close()
 
-		switch resp.StatusCode {
-		case http.StatusTooManyRequests:
-			//log.Printf("[RATE LIMITING]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
-			time.Sleep(20 * time.Second) // Wait before retry
-		case http.StatusOK, http.StatusNoContent, http.StatusPartialContent:
-			// URL is alive and within expected range (200, 204, 206)
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			// URL is alive and within expected range (200-399)
 			return true
-		case http.StatusNotFound, http.StatusForbidden, http.StatusUnauthorized, http.StatusBadRequest:
-			//log.Printf("[SKIPPING]: %s - Status: %d\n", url, resp.StatusCode)
+		} else if resp.StatusCode == http.StatusTooManyRequests {
+			// Handle rate limiting or temporary unavailability
+			// log.Printf("[RATE LIMITING]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
+			time.Sleep(20 * time.Second) // Wait before retry
+		} else if resp.StatusCode >= 500 {
+			// Retry if it's a server error (500+)
+			// log.Printf("[RETRYING]: %s - Status: %d\n", url, resp.StatusCode)
+			time.Sleep(10 * time.Second)
+		} else if resp.StatusCode == 404 || resp.StatusCode == 403 || resp.StatusCode == 401 || resp.StatusCode == 400 {
+			// Skip the URL for specific status codes (400, 401, 403, 404)
+			// log.Printf("[SKIPPING]: %s - Status: %d\n", url, resp.StatusCode)
 			return false
-		default:
+		} else {
+			// Handle other non-OK status codes
 			log.Printf("[HTTP STATUS]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
-			time.Sleep(3 * time.Second) // Wait before retry
+			time.Sleep(5 * time.Second) // Wait before retry
 		}
 	}
 
-	log.Printf("[URL UNREACHABLE]: %s\n", url)
+	// All retries failed, URL is not reachable
+	// log.Printf("[URL UNREACHABLE]: %s\n", url)
 	return false
 }
-
 
 func isInternetConnected() bool {
 	rand.Seed(time.Now().UnixNano())
