@@ -112,7 +112,7 @@ func main() {
 	defer outputFile.Close()
 
 	// Create a writer for the output file
-	const bufferSize = 10 * 1024 * 1024 // 20MB
+	const bufferSize = 5 * 1024 * 1024 // 20MB
 	outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
 	defer outputWriter.Flush()
 
