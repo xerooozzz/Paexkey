@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -392,7 +393,7 @@ func main() {
 					printResult(frameURL, "frame", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
 			})
-
+			
 			// add the custom headers
 			if headers != nil {
 				c.OnRequest(func(r *colly.Request) {
@@ -421,9 +422,9 @@ func main() {
 				// Wait until threads are finished
 				c.Wait()
 				runtime.GC()
-				log.Println("[ALIVE]: " + url)
+				log.Println("[CRAWLED]: " + url)
 			} else {
-				log.Println("[TIMEOUT]: " + url)
+				log.Println("[URL UNREACHABLE]: " + url)
 				runtime.GC()
 				continue
 			}
@@ -448,6 +449,8 @@ func main() {
 		// Print the unique URL
 		fmt.Fprintln(w, res)
 	}
+	// Close the results channel
+	close(results)
 }
 
 // parseHeaders does validation of headers input and saves it to a formatted map.
@@ -617,13 +620,82 @@ func loadKeywordsFromFile(filename string) ([]string, error) {
 }
 
 func isURLAlive(url string, timeout int) bool {
-	client := http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
-	}
-	resp, err := client.Head(url)
+
+	// Attempt to resolve the hostname from the URL
+	host, err := extractHostname(url)
 	if err != nil {
+		log.Printf("[INVALID URL]: %s\n", url)
 		return false
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+
+	// Check DNS resolution
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		// log.Printf("[DNS ERROR]: Unable to resolve host %s: %v\n", host, err)
+		return false
+	}
+
+	if len(ips) == 0 {
+		// log.Printf("[NO IP ADDRESSES]: No IP addresses found for host %s\n", host)
+		return false
+	}
+
+	// Define the maximum number of retries
+	maxRetries := 2
+	for i := 0; i < maxRetries; i++ {
+		client := http.Client{
+			Timeout: time.Duration(timeout) * time.Second,
+		}
+		resp, err := client.Head(url)
+		if err != nil {
+			// Handle network errors
+			// log.Printf("[NETWORK ERROR]: %s, Retry #%d\n", url, i+1)
+			time.Sleep(15 * time.Second) // Wait before retry
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			// URL is alive and within expected range (200-399)
+			return true
+		} else if resp.StatusCode == http.StatusTooManyRequests {
+			// Handle rate limiting or temporary unavailability
+			// log.Printf("[RATE LIMITING]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
+			time.Sleep(20 * time.Second) // Wait before retry
+		} else if resp.StatusCode >= 500 {
+			// Retry if it's a server error (500+)
+			// log.Printf("[RETRYING]: %s - Status: %d\n", url, resp.StatusCode)
+			time.Sleep(10 * time.Second)
+		} else if resp.StatusCode == 404 || resp.StatusCode == 403 || resp.StatusCode == 401 || resp.StatusCode == 400 {
+			// Skip the URL for specific status codes (400, 401, 403, 404)
+			// log.Printf("[SKIPPING]: %s - Status: %d\n", url, resp.StatusCode)
+			return false
+		} else {
+			// Handle other non-OK status codes
+			log.Printf("[HTTP STATUS]: %s, Status Code: %d, Retry #%d\n", url, resp.StatusCode, i+1)
+			time.Sleep(5 * time.Second) // Wait before retry
+		}
+	}
+
+	// All retries failed, URL is not reachable
+	// log.Printf("[URL UNREACHABLE]: %s\n", url)
+	return false
+}
+
+func isInternetConnected() bool {
+	// Check if there's an active network connection
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Println("[INTERNET CHECK ERROR]:", err)
+		return false
+	}
+
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
