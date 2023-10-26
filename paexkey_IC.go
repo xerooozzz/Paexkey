@@ -19,21 +19,12 @@ import (
 	"time"
 
 	"github.com/gocolly/colly/v2"
-	"github.com/gocolly/colly/storage"
 )
 
 type Result struct {
 	Source string
 	URL    string
 	Where  string
-}
-
-// LimitedStorage is a custom storage that limits the number of visited URLs
-type LimitedStorage struct {
-	storage.Storage
-	limit        int
-	visitedURLs  map[uint64]bool
-	visitedURLsMux sync.RWMutex
 }
 
 var headers map[string]string
@@ -139,12 +130,6 @@ func main() {
 				// specify Async for threading
 				colly.Async(true),
 			)
-			inMemoryStorage := &storage.InMemoryStorage{}
-			c.SetStorage(inMemoryStorage)
-		
-			// Wrap the storage in LimitedStorage to limit visited URLs
-			limitedStorage := NewLimitedStorage(inMemoryStorage, 1000) // Set your desired limit
-			c.SetStorage(limitedStorage)
 
 			// set a page size limit
 			if *maxSize != -1 {
@@ -170,26 +155,48 @@ func main() {
 			c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 				link := e.Attr("href")
 				abs_link := e.Request.AbsoluteURL(link)
+				// Check if the current depth is greater than the maximum allowed depth
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				if strings.Contains(abs_link, url) || !*inside {
 					printResult(link, "href", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 					e.Request.Visit(link)
-				}				
+				}
+				
 			})
 
 			// find and print all the JavaScript files
 			c.OnHTML("script[src]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				printResult(e.Attr("src"), "script", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				
 			})
 
 			// find and print all the form action URLs
 			c.OnHTML("form[action]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				printResult(e.Attr("action"), "form", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				
 			})
 
 			// Extract URLs from JavaScript code
 			c.OnHTML("script", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				jsCode := e.Text
 				urls := extractURLsFromJS(jsCode)
 				for _, url := range urls {
@@ -200,6 +207,11 @@ func main() {
 
 			// Extract URLs from CSS files
 			c.OnHTML("link[rel=stylesheet]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				cssURL := e.Attr("href")
 				printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				
@@ -207,6 +219,11 @@ func main() {
 
 			// Extract URLs from embedded resources, iframes, img tags, data attributes, and HTTP redirects
 			c.OnHTML("[src], iframe, img, [data-*]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				srcURL := e.Attr("src")
 				if srcURL != "" {
 					printResult(srcURL, "embedded", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -216,6 +233,11 @@ func main() {
 
 			// Extract interactive element URLs if they have absolute URLs
 			c.OnHTML("button[href], a[href], form[action], select", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				link := e.Attr("href")
 				if link != "" && (strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://")) {
 					printResult(link, "interactive", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -225,6 +247,11 @@ func main() {
 
 			// Extract URLs using the custom regular expression pattern
 			c.OnHTML("*", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				body := e.Text
 				urls := extractURLsWithCustomPattern(body)
 				for _, url := range urls {
@@ -235,6 +262,11 @@ func main() {
 
 			// Extract URLs from all HTML elements and attributes
 			c.OnHTML("*", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				// Check for href attribute
 				href := e.Attr("href")
 				if href != "" {
@@ -290,6 +322,11 @@ func main() {
 
 			// Extract URLs from <video> tags
 			c.OnHTML("video[src]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				src := e.Attr("src")
 				if src != "" {
 					printResult(src, "video", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -299,6 +336,11 @@ func main() {
 
 			// Extract URLs from <audio> tags
 			c.OnHTML("audio[src]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				src := e.Attr("src")
 				if src != "" {
 					printResult(src, "audio", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -308,6 +350,11 @@ func main() {
 
 			// Extract URLs from <embed> tags
 			c.OnHTML("embed[src]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				src := e.Attr("src")
 				if src != "" {
 					printResult(src, "embed", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -317,6 +364,11 @@ func main() {
 
 			// Extract URLs from <track> tags
 			c.OnHTML("track[src]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				src := e.Attr("src")
 				if src != "" {
 					printResult(src, "track", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -326,6 +378,11 @@ func main() {
 
 			// Extract URLs from <area> tags
 			c.OnHTML("area[href]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				href := e.Attr("href")
 				if href != "" {
 					printResult(href, "area", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -335,6 +392,11 @@ func main() {
 
 			// Extract URLs from <applet> tags
 			c.OnHTML("applet[archive]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				archive := e.Attr("archive")
 				if archive != "" {
 					printResult(archive, "applet", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -344,6 +406,11 @@ func main() {
 
 			// Extract URLs from <base> tags
 			c.OnHTML("base[href]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				href := e.Attr("href")
 				if href != "" {
 					printResult(href, "base", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -353,6 +420,11 @@ func main() {
 
 			// Extract URLs from <bgsound> tags
 			c.OnHTML("bgsound[src]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				src := e.Attr("src")
 				if src != "" {
 					printResult(src, "bgsound", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -362,6 +434,11 @@ func main() {
 
 			// Extract URLs from <body> background attribute
 			c.OnHTML("body[background]", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				background := e.Attr("background")
 				if background != "" {
 					printResult(background, "body-background", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -371,6 +448,11 @@ func main() {
 
 			// Extract URLs from XML and RSS feeds
 			c.OnHTML("link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml']", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				feedURL := e.Attr("href")
 				if feedURL != "" {
 					printResult(feedURL, "feed", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -380,6 +462,11 @@ func main() {
 
 			// Extract URLs from WebP images
 			c.OnHTML("img[src*='.webp']", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				webpURL := e.Attr("src")
 				if webpURL != "" {
 					printResult(webpURL, "webp-image", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -389,6 +476,11 @@ func main() {
 
 			// Extract URLs from web manifest files
 			c.OnHTML("link[rel='manifest']", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				manifestURL := e.Attr("href")
 				if manifestURL != "" {
 					printResult(manifestURL, "manifest", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -398,6 +490,11 @@ func main() {
 
 			// Extract URLs from social media meta tags (Open Graph and Twitter)
 			c.OnHTML("meta[property^='og:'], meta[name^='twitter:']", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				property := e.Attr("property")
 				name := e.Attr("name")
 				content := e.Attr("content")
@@ -412,6 +509,11 @@ func main() {
 
 			// Extract URLs from XML sitemaps
 			c.OnHTML("a[href$='.xml']", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				sitemapURL := e.Attr("href")
 				if sitemapURL != "" {
 					printResult(sitemapURL, "sitemap", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -421,6 +523,11 @@ func main() {
 
 			// Extract URLs from data URIs
 			c.OnHTML("*[src^='data:']", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				dataURI := e.Attr("src")
 				if dataURI != "" {
 					printResult(dataURI, "data-uri", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -430,6 +537,11 @@ func main() {
 
 			// Extract WebSocket URLs
 			c.OnHTML("script[src^='ws://'], script[src^='wss://']", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				websocketURL := e.Attr("src")
 				if websocketURL != "" {
 					printResult(websocketURL, "websocket", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -439,6 +551,11 @@ func main() {
 
 			// Extract URLs from frame sources
 			c.OnHTML("frame[src], frameset[frameborder='1']", func(e *colly.HTMLElement) {
+				if e.Request.Depth >= *depth {
+					// If it is, abort the request
+					e.Request.Abort()
+					return
+				}
 				frameURL := e.Attr("src")
 				if frameURL != "" {
 					printResult(frameURL, "frame", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
@@ -600,7 +717,6 @@ func printResult(link string, sourceName string, showSource bool, showWhere bool
                     log.Println("Error writing URL to file:", err)
                 }
                 outputWriter.Flush() // Flush immediately to save to the file
-		outputFile.Close() // Close the file after flushing
             }
 
             // Unlock the mutex
@@ -790,29 +906,4 @@ func isInternetConnected() bool {
 		}
 	}
 	return false
-}
-
-// NewLimitedStorage creates a new LimitedStorage with the given limit
-func NewLimitedStorage(base storage.Storage, limit int) *LimitedStorage {
-	return &LimitedStorage{
-		Storage:      base,
-		limit:        limit,
-		visitedURLs:  make(map[uint64]bool),
-		visitedURLsMux: sync.RWMutex{},
-	}
-}
-
-// Visited limits the number of visited URLs
-func (ls *LimitedStorage) Visited(requestID uint64) error {
-	ls.visitedURLsMux.Lock()
-	defer ls.visitedURLsMux.Unlock()
-	if len(ls.visitedURLs) >= ls.limit {
-		// Remove an older URL to make room for the new one
-		for id := range ls.visitedURLs {
-			delete(ls.visitedURLs, id)
-			break
-		}
-	}
-	ls.visitedURLs[requestID] = true
-	return ls.Storage.Visited(requestID)
 }
