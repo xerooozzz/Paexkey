@@ -139,8 +139,11 @@ func main() {
 				// specify Async for threading
 				colly.Async(true),
 			)
-			limitedStorage := NewLimitedStorage(c.Cache, 1000) // Set your desired limit
-
+			inMemoryStorage := &storage.InMemoryStorage{}
+			c.SetStorage(inMemoryStorage)
+		
+			// Wrap the storage in LimitedStorage to limit visited URLs
+			limitedStorage := NewLimitedStorage(inMemoryStorage, 1000) // Set your desired limit
 			c.SetStorage(limitedStorage)
 
 			// set a page size limit
