@@ -156,7 +156,7 @@ func main() {
 				link := e.Attr("href")
 				abs_link := e.Request.AbsoluteURL(link)
 				// Check if the current depth is greater than the maximum allowed depth
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -170,7 +170,7 @@ func main() {
 
 			// find and print all the JavaScript files
 			c.OnHTML("script[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -181,7 +181,7 @@ func main() {
 
 			// find and print all the form action URLs
 			c.OnHTML("form[action]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -192,7 +192,7 @@ func main() {
 
 			// Extract URLs from JavaScript code
 			c.OnHTML("script", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -207,7 +207,7 @@ func main() {
 
 			// Extract URLs from CSS files
 			c.OnHTML("link[rel=stylesheet]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -219,7 +219,7 @@ func main() {
 
 			// Extract URLs from embedded resources, iframes, img tags, data attributes, and HTTP redirects
 			c.OnHTML("[src], iframe, img, [data-*]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -233,7 +233,7 @@ func main() {
 
 			// Extract interactive element URLs if they have absolute URLs
 			c.OnHTML("button[href], a[href], form[action], select", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -247,7 +247,7 @@ func main() {
 
 			// Extract URLs using the custom regular expression pattern
 			c.OnHTML("*", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -262,7 +262,7 @@ func main() {
 
 			// Extract URLs from all HTML elements and attributes
 			c.OnHTML("*", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -322,7 +322,7 @@ func main() {
 
 			// Extract URLs from <video> tags
 			c.OnHTML("video[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -336,7 +336,7 @@ func main() {
 
 			// Extract URLs from <audio> tags
 			c.OnHTML("audio[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -350,7 +350,7 @@ func main() {
 
 			// Extract URLs from <embed> tags
 			c.OnHTML("embed[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -364,7 +364,7 @@ func main() {
 
 			// Extract URLs from <track> tags
 			c.OnHTML("track[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -378,7 +378,7 @@ func main() {
 
 			// Extract URLs from <area> tags
 			c.OnHTML("area[href]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -392,7 +392,7 @@ func main() {
 
 			// Extract URLs from <applet> tags
 			c.OnHTML("applet[archive]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -406,7 +406,7 @@ func main() {
 
 			// Extract URLs from <base> tags
 			c.OnHTML("base[href]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -420,7 +420,7 @@ func main() {
 
 			// Extract URLs from <bgsound> tags
 			c.OnHTML("bgsound[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -434,7 +434,7 @@ func main() {
 
 			// Extract URLs from <body> background attribute
 			c.OnHTML("body[background]", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -448,7 +448,7 @@ func main() {
 
 			// Extract URLs from XML and RSS feeds
 			c.OnHTML("link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml']", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -462,7 +462,7 @@ func main() {
 
 			// Extract URLs from WebP images
 			c.OnHTML("img[src*='.webp']", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -476,7 +476,7 @@ func main() {
 
 			// Extract URLs from web manifest files
 			c.OnHTML("link[rel='manifest']", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -490,7 +490,7 @@ func main() {
 
 			// Extract URLs from social media meta tags (Open Graph and Twitter)
 			c.OnHTML("meta[property^='og:'], meta[name^='twitter:']", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -509,7 +509,7 @@ func main() {
 
 			// Extract URLs from XML sitemaps
 			c.OnHTML("a[href$='.xml']", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -523,7 +523,7 @@ func main() {
 
 			// Extract URLs from data URIs
 			c.OnHTML("*[src^='data:']", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -537,7 +537,7 @@ func main() {
 
 			// Extract WebSocket URLs
 			c.OnHTML("script[src^='ws://'], script[src^='wss://']", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
@@ -551,7 +551,7 @@ func main() {
 
 			// Extract URLs from frame sources
 			c.OnHTML("frame[src], frameset[frameborder='1']", func(e *colly.HTMLElement) {
-				if e.Request.Depth >= *depth {
+				if e.Request.Depth > *depth {
 					// If it is, abort the request
 					e.Request.Abort()
 					return
