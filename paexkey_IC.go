@@ -425,7 +425,6 @@ func main() {
 			})
 
 			c.Wait()
-			c.Release()
 
 			// add the custom headers
 			if headers != nil {
@@ -507,6 +506,7 @@ func main() {
 		// Print the unique URL
 		fmt.Fprintln(w, res)
 	}
+	os.Exit(0)
 }
 
 // parseHeaders does validation of headers input and saves it to a formatted map.
