@@ -151,19 +151,19 @@ func main() {
 					printResult(link, "href", *showSource, *showWhere, *showJson, results, e, outputWriter)
 					e.Request.Visit(link)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// find and print all the JavaScript files
 			c.OnHTML("script[src]", func(e *colly.HTMLElement) {
 				printResult(e.Attr("src"), "script", *showSource, *showWhere, *showJson, results, e, outputWriter)
-				defer e.Response.Body.Close()
+				
 			})
 
 			// find and print all the form action URLs
 			c.OnHTML("form[action]", func(e *colly.HTMLElement) {
 				printResult(e.Attr("action"), "form", *showSource, *showWhere, *showJson, results, e, outputWriter)
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from JavaScript code
@@ -173,14 +173,14 @@ func main() {
 				for _, url := range urls {
 					printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from CSS files
 			c.OnHTML("link[rel=stylesheet]", func(e *colly.HTMLElement) {
 				cssURL := e.Attr("href")
 				printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter)
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from embedded resources, iframes, img tags, data attributes, and HTTP redirects
@@ -189,7 +189,7 @@ func main() {
 				if srcURL != "" {
 					printResult(srcURL, "embedded", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract interactive element URLs if they have absolute URLs
@@ -198,7 +198,7 @@ func main() {
 				if link != "" && (strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://")) {
 					printResult(link, "interactive", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs using the custom regular expression pattern
@@ -208,7 +208,7 @@ func main() {
 				for _, url := range urls {
 					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from all HTML elements and attributes
@@ -263,7 +263,7 @@ func main() {
 						printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter)
 					}
 				})
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <video> tags
@@ -272,7 +272,7 @@ func main() {
 				if src != "" {
 					printResult(src, "video", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <audio> tags
@@ -281,7 +281,7 @@ func main() {
 				if src != "" {
 					printResult(src, "audio", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <embed> tags
@@ -290,7 +290,7 @@ func main() {
 				if src != "" {
 					printResult(src, "embed", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <track> tags
@@ -299,7 +299,7 @@ func main() {
 				if src != "" {
 					printResult(src, "track", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <area> tags
@@ -308,7 +308,7 @@ func main() {
 				if href != "" {
 					printResult(href, "area", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <applet> tags
@@ -317,7 +317,7 @@ func main() {
 				if archive != "" {
 					printResult(archive, "applet", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <base> tags
@@ -326,7 +326,7 @@ func main() {
 				if href != "" {
 					printResult(href, "base", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <bgsound> tags
@@ -335,7 +335,7 @@ func main() {
 				if src != "" {
 					printResult(src, "bgsound", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from <body> background attribute
@@ -344,7 +344,7 @@ func main() {
 				if background != "" {
 					printResult(background, "body-background", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from XML and RSS feeds
@@ -353,7 +353,7 @@ func main() {
 				if feedURL != "" {
 					printResult(feedURL, "feed", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from WebP images
@@ -362,7 +362,7 @@ func main() {
 				if webpURL != "" {
 					printResult(webpURL, "webp-image", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from web manifest files
@@ -371,7 +371,7 @@ func main() {
 				if manifestURL != "" {
 					printResult(manifestURL, "manifest", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from social media meta tags (Open Graph and Twitter)
@@ -385,7 +385,7 @@ func main() {
 				} else if name != "" && content != "" {
 					printResult(content, "social-media-"+name, *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from XML sitemaps
@@ -394,7 +394,7 @@ func main() {
 				if sitemapURL != "" {
 					printResult(sitemapURL, "sitemap", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from data URIs
@@ -403,7 +403,7 @@ func main() {
 				if dataURI != "" {
 					printResult(dataURI, "data-uri", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract WebSocket URLs
@@ -412,7 +412,7 @@ func main() {
 				if websocketURL != "" {
 					printResult(websocketURL, "websocket", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			// Extract URLs from frame sources
@@ -421,7 +421,7 @@ func main() {
 				if frameURL != "" {
 					printResult(frameURL, "frame", *showSource, *showWhere, *showJson, results, e, outputWriter)
 				}
-				defer e.Response.Body.Close()
+				
 			})
 
 			c.Wait()
