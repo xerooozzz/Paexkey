@@ -553,51 +553,56 @@ func extractHostname(urlString string) (string, error) {
 }
 
 func printResult(link string, sourceName string, showSource bool, showWhere bool, showJson bool, results chan string, e *colly.HTMLElement, outputWriter *bufio.Writer) {
-	// Check if keywords are provided and if any of them are present in the URL
-	if len(keywords) == 0 || containsKeyword(link, keywords) {
-		result := e.Request.AbsoluteURL(link)
-		whereURL := e.Request.URL.String()
-		if result != "" {
-			if showJson {
-				where := ""
-				if showWhere {
-					where = whereURL
-				}
-				bytes, _ := json.Marshal(Result{
-					Source: sourceName,
-					URL:    result,
-					Where:  where,
-				})
-				result = string(bytes)
-			} else if showSource {
-				result = "[" + sourceName + "] " + result
-			}
+    // Check if keywords are provided and if any of them are present in the URL
+    if len(keywords) == 0 || containsKeyword(link, keywords) {
+        result := e.Request.AbsoluteURL(link)
+        whereURL := e.Request.URL.String()
+        if result != "" {
+            if showJson {
+                where := ""
+                if showWhere {
+                    where = whereURL
+                }
+                bytes, _ := json.Marshal(Result{
+                    Source: sourceName,
+                    URL:    result,
+                    Where:  where,
+                })
+                result = string(bytes)
+            } else if showSource {
+                result = "[" + sourceName + "] " + result
+            }
 
-			if showWhere && !showJson {
-				result = "[" + whereURL + "] " + result
-			}
+            if showWhere && !showJson {
+                result = "[" + whereURL + "] " + result
+            }
 
-			// Lock the mutex before writing to the file
-			mutex.Lock()
+            // Lock the mutex before writing to the file
+            mutex.Lock()
 
-			// If timeout occurs before goroutines are finished, recover from panic that may occur when attempting writing to results to closed results channel
-			defer func() {
-				if err := recover(); err != nil {
-					return
-				}
-			}()
-			results <- result
+            // Save URLs containing keywords to the file
+            if len(keywords) == 0 || containsKeyword(result, keywords) {
+                _, err := outputWriter.WriteString(result + "\n")
+                if err != nil {
+                    log.Println("Error writing URL to file:", err)
+                }
+                outputWriter.Flush() // Flush immediately to save to the file
+            }
 
-			// Save URLs containing keywords to the file
-			if len(keywords) == 0 || containsKeyword(result, keywords) {
-				_, err := outputWriter.WriteString(result + "\n")
-				if err != nil {
-					log.Println("Error writing URL to file:", err)
-				}
-			}
-			defer mutex.Unlock()
-		}
-	}
+            // Unlock the mutex
+            mutex.Unlock()
+
+            // If timeout occurs before goroutines are finished, recover from panic that may occur when attempting writing to results to the closed results channel
+            defer func() {
+                if err := recover(); err != nil {
+                    return
+                }
+            }()
+
+            // Send the result to the channel
+            results <- result
+        }
+    }
 }
 
 // Function to check if any keyword is present in the URL
