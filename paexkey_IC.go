@@ -480,6 +480,9 @@ func main() {
 		// Print the unique URL
 		fmt.Fprintln(w, res)
 	}
+	// Close the response body when we're done with it
+	defer e.Request.Response.Body.Close()
+	cleanup()
 }
 
 // parseHeaders does validation of headers input and saves it to a formatted map.
@@ -735,4 +738,30 @@ func isInternetConnected() bool {
 		}
 	}
 	return false
+}
+
+func cleanup() {
+    // Close the results channel to signal that no more results will be sent
+    close(results)
+
+    // Wait for all goroutines to finish using the wait group
+    wg.Wait()
+
+    // Close the output file if it's open
+    if outputFile != nil {
+        outputFile.Close()
+    }
+
+    // Close the keyword file if it's open
+    if *keywordFile != "" {
+        if err := keywordFile.Close(); err != nil {
+            fmt.Fprintln(os.Stderr, "Error closing keyword file:", err)
+        }
+    }
+
+    // Additional cleanup steps, if needed
+    // Close any other open files, network connections, or resources here.
+
+    // Explicitly invoke the garbage collector
+    runtime.GC()
 }
