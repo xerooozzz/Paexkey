@@ -68,14 +68,13 @@ func main() {
 	// Open the file for writing or append if it exists
 	outputFile, err := os.OpenFile("matched_urls.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
-		log.Fatal(err)
+	    log.Fatal(err)
 	}
 	defer outputFile.Close()
-
+	
 	// Create a writer for the output file
 	const bufferSize = 10 * 1024 * 1024 // 20MB
 	outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
-	defer outputWriter.Flush()
 
 	if *keywordFile != "" {
 		keywords, err = loadKeywordsFromFile(*keywordFile)
@@ -157,7 +156,7 @@ func main() {
 				link := e.Attr("href")
 				abs_link := e.Request.AbsoluteURL(link)
 				if strings.Contains(abs_link, url) || !*inside {
-					printResult(link, "href", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(link, "href", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 					e.Request.Visit(link)
 				}
 				
@@ -165,13 +164,13 @@ func main() {
 
 			// find and print all the JavaScript files
 			c.OnHTML("script[src]", func(e *colly.HTMLElement) {
-				printResult(e.Attr("src"), "script", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				printResult(e.Attr("src"), "script", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				
 			})
 
 			// find and print all the form action URLs
 			c.OnHTML("form[action]", func(e *colly.HTMLElement) {
-				printResult(e.Attr("action"), "form", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				printResult(e.Attr("action"), "form", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				
 			})
 
@@ -180,7 +179,7 @@ func main() {
 				jsCode := e.Text
 				urls := extractURLsFromJS(jsCode)
 				for _, url := range urls {
-					printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -188,7 +187,7 @@ func main() {
 			// Extract URLs from CSS files
 			c.OnHTML("link[rel=stylesheet]", func(e *colly.HTMLElement) {
 				cssURL := e.Attr("href")
-				printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				
 			})
 
@@ -196,7 +195,7 @@ func main() {
 			c.OnHTML("[src], iframe, img, [data-*]", func(e *colly.HTMLElement) {
 				srcURL := e.Attr("src")
 				if srcURL != "" {
-					printResult(srcURL, "embedded", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(srcURL, "embedded", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -205,7 +204,7 @@ func main() {
 			c.OnHTML("button[href], a[href], form[action], select", func(e *colly.HTMLElement) {
 				link := e.Attr("href")
 				if link != "" && (strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://")) {
-					printResult(link, "interactive", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(link, "interactive", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -215,7 +214,7 @@ func main() {
 				body := e.Text
 				urls := extractURLsWithCustomPattern(body)
 				for _, url := range urls {
-					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -225,20 +224,20 @@ func main() {
 				// Check for href attribute
 				href := e.Attr("href")
 				if href != "" {
-					printResult(href, "href", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(href, "href", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 
 				// Check for src attribute
 				src := e.Attr("src")
 				if src != "" {
-					printResult(src, "src", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(src, "src", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 
 				//Check for data attributes that may contain URLs
 				e.ForEach("[data-*]", func(_ int, el *colly.HTMLElement) {
 					dataAttr := el.Text
 					if dataAttr != "" {
-						printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter)
+						printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 					}
 				})
 
@@ -246,7 +245,7 @@ func main() {
 				if e.Name == "meta" {
 					content := e.Attr("content")
 					if content != "" {
-						printResult(content, "meta", *showSource, *showWhere, *showJson, results, e, outputWriter)
+						printResult(content, "meta", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 					}
 				}
 
@@ -255,21 +254,21 @@ func main() {
 					jsCode := e.Text
 					urls := extractURLsFromJS(jsCode)
 					for _, url := range urls {
-						printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter)
+						printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 					}
 				}
 
 				// Check for URLs in CSS files
 				if e.Name == "link" && e.Attr("rel") == "stylesheet" {
 					cssURL := e.Attr("href")
-					printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 
 				//Check for custom data attributes that may contain URLs
 				e.ForEach("[data-custom-*]", func(_ int, el *colly.HTMLElement) {
 					customDataAttr := el.Text
 					if customDataAttr != "" {
-						printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter)
+						printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 					}
 				})
 				
@@ -279,7 +278,7 @@ func main() {
 			c.OnHTML("video[src]", func(e *colly.HTMLElement) {
 				src := e.Attr("src")
 				if src != "" {
-					printResult(src, "video", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(src, "video", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -288,7 +287,7 @@ func main() {
 			c.OnHTML("audio[src]", func(e *colly.HTMLElement) {
 				src := e.Attr("src")
 				if src != "" {
-					printResult(src, "audio", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(src, "audio", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -297,7 +296,7 @@ func main() {
 			c.OnHTML("embed[src]", func(e *colly.HTMLElement) {
 				src := e.Attr("src")
 				if src != "" {
-					printResult(src, "embed", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(src, "embed", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -306,7 +305,7 @@ func main() {
 			c.OnHTML("track[src]", func(e *colly.HTMLElement) {
 				src := e.Attr("src")
 				if src != "" {
-					printResult(src, "track", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(src, "track", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -315,7 +314,7 @@ func main() {
 			c.OnHTML("area[href]", func(e *colly.HTMLElement) {
 				href := e.Attr("href")
 				if href != "" {
-					printResult(href, "area", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(href, "area", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -324,7 +323,7 @@ func main() {
 			c.OnHTML("applet[archive]", func(e *colly.HTMLElement) {
 				archive := e.Attr("archive")
 				if archive != "" {
-					printResult(archive, "applet", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(archive, "applet", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -333,7 +332,7 @@ func main() {
 			c.OnHTML("base[href]", func(e *colly.HTMLElement) {
 				href := e.Attr("href")
 				if href != "" {
-					printResult(href, "base", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(href, "base", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -342,7 +341,7 @@ func main() {
 			c.OnHTML("bgsound[src]", func(e *colly.HTMLElement) {
 				src := e.Attr("src")
 				if src != "" {
-					printResult(src, "bgsound", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(src, "bgsound", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -351,7 +350,7 @@ func main() {
 			c.OnHTML("body[background]", func(e *colly.HTMLElement) {
 				background := e.Attr("background")
 				if background != "" {
-					printResult(background, "body-background", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(background, "body-background", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -360,7 +359,7 @@ func main() {
 			c.OnHTML("link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml']", func(e *colly.HTMLElement) {
 				feedURL := e.Attr("href")
 				if feedURL != "" {
-					printResult(feedURL, "feed", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(feedURL, "feed", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -369,7 +368,7 @@ func main() {
 			c.OnHTML("img[src*='.webp']", func(e *colly.HTMLElement) {
 				webpURL := e.Attr("src")
 				if webpURL != "" {
-					printResult(webpURL, "webp-image", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(webpURL, "webp-image", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -378,7 +377,7 @@ func main() {
 			c.OnHTML("link[rel='manifest']", func(e *colly.HTMLElement) {
 				manifestURL := e.Attr("href")
 				if manifestURL != "" {
-					printResult(manifestURL, "manifest", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(manifestURL, "manifest", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -390,9 +389,9 @@ func main() {
 				content := e.Attr("content")
 
 				if property != "" && content != "" {
-					printResult(content, "social-media-"+property, *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(content, "social-media-"+property, *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				} else if name != "" && content != "" {
-					printResult(content, "social-media-"+name, *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(content, "social-media-"+name, *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -401,7 +400,7 @@ func main() {
 			c.OnHTML("a[href$='.xml']", func(e *colly.HTMLElement) {
 				sitemapURL := e.Attr("href")
 				if sitemapURL != "" {
-					printResult(sitemapURL, "sitemap", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(sitemapURL, "sitemap", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -410,7 +409,7 @@ func main() {
 			c.OnHTML("*[src^='data:']", func(e *colly.HTMLElement) {
 				dataURI := e.Attr("src")
 				if dataURI != "" {
-					printResult(dataURI, "data-uri", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(dataURI, "data-uri", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -419,7 +418,7 @@ func main() {
 			c.OnHTML("script[src^='ws://'], script[src^='wss://']", func(e *colly.HTMLElement) {
 				websocketURL := e.Attr("src")
 				if websocketURL != "" {
-					printResult(websocketURL, "websocket", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(websocketURL, "websocket", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -428,7 +427,7 @@ func main() {
 			c.OnHTML("frame[src], frameset[frameborder='1']", func(e *colly.HTMLElement) {
 				frameURL := e.Attr("src")
 				if frameURL != "" {
-					printResult(frameURL, "frame", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					printResult(frameURL, "frame", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
 				}
 				
 			})
@@ -552,7 +551,7 @@ func extractHostname(urlString string) (string, error) {
 	return u.Hostname(), nil
 }
 
-func printResult(link string, sourceName string, showSource bool, showWhere bool, showJson bool, results chan string, e *colly.HTMLElement, outputWriter *bufio.Writer) {
+func printResult(link string, sourceName string, showSource bool, showWhere bool, showJson bool, results chan string, e *colly.HTMLElement, outputWriter *bufio.Writer, outputFile *os.File) {
     // Check if keywords are provided and if any of them are present in the URL
     if len(keywords) == 0 || containsKeyword(link, keywords) {
         result := e.Request.AbsoluteURL(link)
@@ -587,6 +586,7 @@ func printResult(link string, sourceName string, showSource bool, showWhere bool
                     log.Println("Error writing URL to file:", err)
                 }
                 outputWriter.Flush() // Flush immediately to save to the file
+		outputFile.Close() // Close the file after flushing
             }
 
             // Unlock the mutex
