@@ -53,6 +53,15 @@ func main() {
 
 	flag.Parse()
 
+		// Check for network connectivity
+	for {
+		if isInternetConnected() {
+			break
+		}
+		log.Println("Waiting for internet connection...")
+		time.Sleep(30 * time.Second) // Wait for 30 seconds before rechecking
+	}
+
 	// Create a wait group to wait for the goroutine to finish
 	var wg sync.WaitGroup
 
