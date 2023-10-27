@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gocolly/colly/v2"
+	"github.com/gocolly/colly/queue"
 )
 
 type Result struct {
@@ -130,6 +131,12 @@ func main() {
 				// specify Async for threading
 				colly.Async(true),
 			)
+			
+			q := setupCollyQueue(*depth) // Pass the depth parameter from command-line flag.
+			err := q.Run(c)
+			if err != nil {
+			    log.Fatalf("Error running Colly queue: %v", err)
+			}
 
 			// set a page size limit
 			if *maxSize != -1 {
@@ -906,4 +913,28 @@ func isInternetConnected() bool {
 		}
 	}
 	return false
+}
+
+func setupCollyQueue(depth int) *queue.Queue {
+    var threads int
+    var maxSize int
+
+    if depth >= 2 {
+        // If depth is 2 or more, limit memory resources and use fewer threads.
+        threads = 2
+        maxSize = 1000 // Set your preferred max queue size here.
+    } else {
+        // For depth 1, use the default configuration.
+        threads = 8
+        maxSize = -1
+    }
+
+    // Initialize Colly queue with custom storage and configuration.
+    s := &queue.InMemoryQueueStorage{MaxSize: maxSize}
+    q, err := queue.New(threads, s)
+    if err != nil {
+        log.Fatalf("Error initializing Colly queue: %v", err)
+    }
+
+    return q
 }
