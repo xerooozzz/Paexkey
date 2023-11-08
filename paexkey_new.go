@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -61,20 +62,20 @@ func main() {
 		time.Sleep(30 * time.Second) // Wait for 30 seconds before rechecking
 	}
 
-	// Initialize the wait group outside of the loop
-	var wg sync.WaitGroup
+    // Initialize the wait group outside of the loop
+    var wg sync.WaitGroup
 
-	// Open the output file
-	outputFile, err := os.OpenFile("matched_urls.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer outputFile.Close()
+    // Open the output file
+    outputFile, err := os.OpenFile("matched_urls.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer outputFile.Close()
 
-	// Create a buffered writer for the output file
-	const bufferSize = 10 * 1024 * 1024 // 20MB
-	outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
-	defer outputWriter.Flush()
+    // Create a buffered writer for the output file
+    const bufferSize = 10 * 1024 * 1024 // 20MB
+    outputWriter := bufio.NewWriterSize(outputFile, bufferSize)
+    defer outputWriter.Flush()
 
 	if *keywordFile != "" {
 		keywords, err = loadKeywordsFromFile(*keywordFile)
@@ -84,225 +85,225 @@ func main() {
 		}
 	}
 
-	// Check for stdin input
+    // Check for stdin input
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
 		fmt.Fprintln(os.Stderr, "No urls detected. Hint: cat urls.txt | paexkey")
 		os.Exit(1)
 	}
 
-	// Set up proxy if provided
-	var proxyURL *url.URL
-	if *proxy != "" {
-		var err error
-		proxyURL, err = url.Parse(*proxy)
-		if err != nil {
-			log.Fatalf("Error parsing proxy URL: %v", err)
+    // Set up proxy if provided
+    var proxyURL *url.URL
+    if *proxy != "" {
+        var err error
+        proxyURL, err = url.Parse(*proxy)
+        if err != nil {
+            log.Fatalf("Error parsing proxy URL: %v", err)
+        }
+    }
+
+    // Use a single transport instance to benefit from connection reuse
+    transport := &http.Transport{
+        Proxy:           http.ProxyURL(proxyURL),
+        TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
+    }
+
+    // Set up channels for results and for indicating when processing is done
+    results := make(chan string, 100)
+    done := make(chan bool)
+
+    // Launch a single goroutine for processing results
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        w := bufio.NewWriter(os.Stdout)
+        defer w.Flush()
+        if *unique {
+            for res := range results {
+                if isUnique(res) {
+                    // Print the unique URL
+                    fmt.Fprintln(w, res)
+                }
+            }
+        }else {
+		for res := range results {
+			// Print the unique URL
+			fmt.Fprintln(w, res)
 		}
 	}
+    }()
 
-	// Use a single transport instance to benefit from connection reuse
-	transport := &http.Transport{
-		Proxy:           http.ProxyURL(proxyURL),
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
-	}
+    // Read from stdin
+    s := bufio.NewScanner(os.Stdin)
+    for s.Scan() {
+        url := s.Text()
+        hostname, err := extractHostname(url)
+        if err != nil {
+            log.Println("Error parsing URL:", err)
+            continue
+        }
 
-	// Set up channels for results and for indicating when processing is done
-	results := make(chan string, 100)
-	done := make(chan bool)
+        allowed_domains := []string{hostname}
+        // if "Host" header is set, append it to allowed domains
+        if headers != nil {
+            if val, ok := headers["Host"]; ok {
+                allowed_domains = append(allowed_domains, val)
+            }
+        }
 
-	// Launch a single goroutine for processing results
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		w := bufio.NewWriter(os.Stdout)
-		defer w.Flush()
-		if *unique {
-			for res := range results {
-				if isUnique(res) {
-					// Print the unique URL
-					fmt.Fprintln(w, res)
-				}
-			}
-		} else {
-			for res := range results {
-				// Print the unique URL
-				fmt.Fprintln(w, res)
-			}
-		}
-	}()
-
-	// Read from stdin
-	s := bufio.NewScanner(os.Stdin)
-	for s.Scan() {
-		url := s.Text()
-		hostname, err := extractHostname(url)
-		if err != nil {
-			log.Println("Error parsing URL:", err)
-			continue
-		}
-
-		allowed_domains := []string{hostname}
-		// if "Host" header is set, append it to allowed domains
-		if headers != nil {
-			if val, ok := headers["Host"]; ok {
-				allowed_domains = append(allowed_domains, val)
-			}
-		}
-
-		// Instantiate default collector
-		c := colly.NewCollector(
-			// default user agent header
-			colly.UserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:78.0) Gecko/20100101 Firefox/78.0"),
-			// limit crawling to the domain of the specified URL
-			colly.AllowedDomains(allowed_domains...),
-			// set MaxDepth to the specified depth
-			colly.MaxDepth(*depth),
-			// specify Async for threading
-			colly.Async(true),
-		)
+        // Instantiate default collector
+        c := colly.NewCollector(
+            // default user agent header
+            colly.UserAgent("Mozilla/5.0 (X11; Linux x86_64; rv:78.0) Gecko/20100101 Firefox/78.0"),
+            // limit crawling to the domain of the specified URL
+            colly.AllowedDomains(allowed_domains...),
+            // set MaxDepth to the specified depth
+            colly.MaxDepth(*depth),
+            // specify Async for threading
+            colly.Async(true),
+        )
 
 		c.WithTransport(transport)
 
-		// set a page size limit
-		if *maxSize != -1 {
-			c.MaxBodySize = *maxSize * 1024
-		}
+        // set a page size limit
+        if *maxSize != -1 {
+            c.MaxBodySize = *maxSize * 1024
+        }
 
-		// if -subs is present, use regex to filter out subdomains in scope.
-		if *subsInScope {
-			c.AllowedDomains = nil
-			c.URLFilters = []*regexp.Regexp{regexp.MustCompile(".*(\\.|\\/\\/)" + strings.ReplaceAll(hostname, ".", "\\.") + "((#|\\/|\\?).*)?")}
-		}
+        // if -subs is present, use regex to filter out subdomains in scope.
+        if *subsInScope {
+            c.AllowedDomains = nil
+            c.URLFilters = []*regexp.Regexp{regexp.MustCompile(".*(\\.|\\/\\/)" + strings.ReplaceAll(hostname, ".", "\\.") + "((#|\\/|\\?).*)?")}
+        }
 
-		// If `-dr` flag provided, do not follow HTTP redirects.
-		if *disableRedirects {
-			c.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			})
-		}
-		// Set parallelism
-		c.Limit(&colly.LimitRule{DomainGlob: "*", Parallelism: *threads})
+        // If `-dr` flag provided, do not follow HTTP redirects.
+        if *disableRedirects {
+            c.SetRedirectHandler(func(req *http.Request, via []*http.Request) error {
+                return http.ErrUseLastResponse
+            })
+        }
+        // Set parallelism
+        c.Limit(&colly.LimitRule{DomainGlob: "*", Parallelism: *threads})
 
-		visitedURLs := make(map[string]bool)
+        visitedURLs := make(map[string]bool)
 
-		c.OnHTML("*", func(e *colly.HTMLElement) {
-			e.ForEach("a[href], script[src], form[action], link[rel=stylesheet], img[src], iframe[src], [src], [href], [data-*], [action], [style], [onclick], [onload], object[data], param[name=url], video[src], audio[src], embed[src], track[src], applet[archive], base[href], bgsound[src], body[background], link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml'], img[src*='.webp'], link[rel='manifest'], meta[property^='og:'], meta[name^='twitter:'], a[href$='.xml'], *[src^='data:'], script[src^='ws://'], script[src^='wss://'], frame[src], frameset[frameborder='1'], area[href], *[onclick*='location.href'], *[style*='background-image:'], *[style*='background:'], [data-custom-*]", func(_ int, el *colly.HTMLElement) {
-				attr := ""
-				resourceType := ""
+        c.OnHTML("*", func(e *colly.HTMLElement) {
+            e.ForEach("a[href], script[src], form[action], link[rel=stylesheet], img[src], iframe[src], [src], [href], [data-*], [action], [style], [onclick], [onload], object[data], param[name=url], video[src], audio[src], embed[src], track[src], applet[archive], base[href], bgsound[src], body[background], link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml'], img[src*='.webp'], link[rel='manifest'], meta[property^='og:'], meta[name^='twitter:'], a[href$='.xml'], *[src^='data:'], script[src^='ws://'], script[src^='wss://'], frame[src], frameset[frameborder='1'], area[href], *[onclick*='location.href'], *[style*='background-image:'], *[style*='background:'], [data-custom-*]", func(_ int, el *colly.HTMLElement) {  
+                attr := ""
+                resourceType := ""
 
-				// Identify the attribute and resource type
-				if href := el.Attr("href"); href != "" {
-					attr = href
-					resourceType = "href"
-				} else if src := el.Attr("src"); src != "" {
-					attr = src
-					resourceType = "src"
-				} else if action := el.Attr("action"); action != "" {
-					attr = action
-					resourceType = "action"
-				} else if data := el.Attr("data"); data != "" {
-					attr = data
-					resourceType = "data"
-				} else if style := el.Attr("style"); style != "" {
-					urls := extractURLsWithCustomPattern(style)
-					for _, url := range urls {
-						if _, exists := visitedURLs[url]; !exists {
-							printResult(url, "style", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-							visitedURLs[url] = true
-						}
-					}
-					return
-				}
+                // Identify the attribute and resource type
+                if href := el.Attr("href"); href != "" {
+                    attr = href
+                    resourceType = "href"
+                } else if src := el.Attr("src"); src != "" {
+                    attr = src
+                    resourceType = "src"
+                } else if action := el.Attr("action"); action != "" {
+                    attr = action
+                    resourceType = "action"
+                } else if data := el.Attr("data"); data != "" {
+                    attr = data
+                    resourceType = "data"
+                } else if style := el.Attr("style"); style != "" {
+                    urls := extractURLsWithCustomPattern(style)
+                    for _, url := range urls {
+                        if _, exists := visitedURLs[url]; !exists {
+                            printResult(url, "style", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+                            visitedURLs[url] = true
+                        }
+                    }
+                    return
+                }
 
-				// Check if the URL has been visited or not
-				absAttr := e.Request.AbsoluteURL(attr)
-				if _, visited := visitedURLs[absAttr]; !visited && attr != "" && (strings.Contains(absAttr, url) || !*inside) {
-					printResult(attr, resourceType, *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-					visitedURLs[absAttr] = true
-					if resourceType == "href" {
-						e.Request.Visit(attr)
-					}
-				}
-			})
+                // Check if the URL has been visited or not
+                absAttr := e.Request.AbsoluteURL(attr)
+                if _, visited := visitedURLs[absAttr]; !visited && attr != "" && (strings.Contains(absAttr, url) || !*inside) {
+                    printResult(attr, resourceType, *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+                    visitedURLs[absAttr] = true
+                    if resourceType == "href" {
+                        e.Request.Visit(attr)
+                    }
+                }
+            })
 
-			// Inline JavaScript code
-			if e.Name == "script" && e.Attr("src") == "" {
-				jsCode := e.Text
-				urls := extractURLsFromJS(jsCode)
-				for _, url := range urls {
-					if _, exists := visitedURLs[url]; !exists {
-						printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-						visitedURLs[url] = true
-					}
-				}
-			}
+            // Inline JavaScript code
+            if e.Name == "script" && e.Attr("src") == "" {
+                jsCode := e.Text
+                urls := extractURLsFromJS(jsCode)
+                for _, url := range urls {
+                    if _, exists := visitedURLs[url]; !exists {
+                        printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+                        visitedURLs[url] = true
+                    }
+                }
+            }
 
-			// Custom regular expression pattern for entire element text
-			body := e.Text
-			urls := extractURLsWithCustomPattern(body)
-			for _, url := range urls {
-				if _, exists := visitedURLs[url]; !exists {
-					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-					visitedURLs[url] = true
-				}
-			}
-		})
+            // Custom regular expression pattern for entire element text
+            body := e.Text
+            urls := extractURLsWithCustomPattern(body)
+            for _, url := range urls {
+                if _, exists := visitedURLs[url]; !exists {
+                    printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+                    visitedURLs[url] = true
+                }
+            }
+        })			
 
-		c.Wait()
+        c.Wait()
 
-		// add the custom headers
-		if headers != nil {
-			c.OnRequest(func(r *colly.Request) {
-				for header, value := range headers {
-					r.Headers.Set(header, value)
-				}
-			})
-		}
+        // add the custom headers
+        if headers != nil {
+            c.OnRequest(func(r *colly.Request) {
+                for header, value := range headers {
+                    r.Headers.Set(header, value)
+                }
+            })
+        }
 
-		if *proxy != "" {
-			// Skip TLS verification for proxy, if -insecure specified
-			c.WithTransport(&http.Transport{
-				Proxy:           http.ProxyURL(proxyURL),
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
-			})
-		} else {
-			// Skip TLS verification if -insecure flag is present
-			c.WithTransport(&http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
-			})
-		}
+        if *proxy != "" {
+            // Skip TLS verification for proxy, if -insecure specified
+            c.WithTransport(&http.Transport{
+                Proxy:           http.ProxyURL(proxyURL),
+                TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
+            })
+        } else {
+            // Skip TLS verification if -insecure flag is present
+            c.WithTransport(&http.Transport{
+                TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
+            })
+        }
 
-		// Start scraping in a goroutine
-		wg.Add(1)
-		go func(url string) {
-			defer wg.Done()
-			if isURLAlive(url, *timeout) {
-				// Start scraping
-				c.Visit(url)
-				// Wait until threads are finished
-				c.Wait()
-				log.Println("[CRAWLED]: " + url)
-			} else {
-				log.Printf("[URL UNREACHABLE]: %s\n", url)
-			}
-			done <- true
-		}(url)
-	}
+        // Start scraping in a goroutine
+        wg.Add(1)
+        go func(url string) {
+            defer wg.Done()
+            if isURLAlive(url, *timeout) {
+                // Start scraping
+                c.Visit(url)
+                // Wait until threads are finished
+                c.Wait()
+                log.Println("[CRAWLED]: " + url)
+            } else {
+                log.Printf("[URL UNREACHABLE]: %s\n", url)
+            }
+            done <- true
+        }(url)
+    }
 
-	// Close the results channel when all goroutines are done
-	go func() {
-		wg.Wait()
-		close(results)
-		close(done)
-	}()
+    // Close the results channel when all goroutines are done
+    go func() {
+        wg.Wait()
+        close(results)
+        close(done)
+    }()
 
-	// Block until the processing is done
-	<-done
+    // Block until the processing is done
+    <-done
 
-	if err := s.Err(); err != nil {
-		log.Fatalf("reading standard input: %v", err)
-	}
+    if err := s.Err(); err != nil {
+        log.Fatalf("reading standard input: %v", err)
+    }
 }
 
 // parseHeaders does validation of headers input and saves it to a formatted map.
@@ -374,6 +375,7 @@ func printResult(link string, sourceName string, showSource bool, showWhere bool
 					log.Println("Error writing URL to file:", err)
 				}
 				outputWriter.Flush() // Flush immediately to save to the file
+				outputFile.Close()   // Close the file after flushing
 			}
 
 			// Unlock the mutex
@@ -512,13 +514,14 @@ func isURLAlive(url string, timeout int) bool {
 			Timeout: time.Duration(timeout) * time.Second,
 		}
 		resp, err := client.Head(url)
-		defer resp.Body.Close()
 		if err != nil {
 			// Handle network errors
 			// log.Printf("[NETWORK ERROR]: %s, Retry #%d\n", url, i+1)
 			time.Sleep(15 * time.Second) // Wait before retry
 			continue
 		}
+		defer resp.Body.Close()
+
 		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 			// URL is alive and within expected range (200-399)
 			return true
