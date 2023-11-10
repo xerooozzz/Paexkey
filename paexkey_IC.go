@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/gocolly/colly/v2"
-	"github.com/gocolly/colly/queue"
 )
 
 type Result struct {
@@ -131,12 +130,6 @@ func main() {
 				// specify Async for threading
 				colly.Async(true),
 			)
-			
-			q := setupCollyQueue(*depth) // Pass the depth parameter from command-line flag.
-			err := q.Run(c)
-			if err != nil {
-			    log.Fatalf("Error running Colly queue: %v", err)
-			}
 
 			// set a page size limit
 			if *maxSize != -1 {
@@ -158,416 +151,99 @@ func main() {
 			// Set parallelism
 			c.Limit(&colly.LimitRule{DomainGlob: "*", Parallelism: *threads})
 
-			// Print every href found, and visit it
-			c.OnHTML("a[href]", func(e *colly.HTMLElement) {
-				link := e.Attr("href")
-				abs_link := e.Request.AbsoluteURL(link)
-				// Check if the current depth is greater than the maximum allowed depth
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				if strings.Contains(abs_link, url) || !*inside {
-					printResult(link, "href", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-					e.Request.Visit(link)
-				}
-				
-			})
-
-			// find and print all the JavaScript files
-			c.OnHTML("script[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				printResult(e.Attr("src"), "script", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				
-			})
-
-			// find and print all the form action URLs
-			c.OnHTML("form[action]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				printResult(e.Attr("action"), "form", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				
-			})
-
-			// Extract URLs from JavaScript code
-			c.OnHTML("script", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				jsCode := e.Text
-				urls := extractURLsFromJS(jsCode)
-				for _, url := range urls {
-					printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from CSS files
-			c.OnHTML("link[rel=stylesheet]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				cssURL := e.Attr("href")
-				printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				
-			})
-
-			// Extract URLs from embedded resources, iframes, img tags, data attributes, and HTTP redirects
-			c.OnHTML("[src], iframe, img, [data-*]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				srcURL := e.Attr("src")
-				if srcURL != "" {
-					printResult(srcURL, "embedded", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract interactive element URLs if they have absolute URLs
-			c.OnHTML("button[href], a[href], form[action], select", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				link := e.Attr("href")
-				if link != "" && (strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://")) {
-					printResult(link, "interactive", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs using the custom regular expression pattern
-			c.OnHTML("*", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				body := e.Text
-				urls := extractURLsWithCustomPattern(body)
-				for _, url := range urls {
-					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
 			// Extract URLs from all HTML elements and attributes
 			c.OnHTML("*", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				// Check for href attribute
-				href := e.Attr("href")
-				if href != "" {
-					printResult(href, "href", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-
-				// Check for src attribute
-				src := e.Attr("src")
-				if src != "" {
-					printResult(src, "src", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-
-				//Check for data attributes that may contain URLs
-				e.ForEach("[data-*]", func(_ int, el *colly.HTMLElement) {
-					dataAttr := el.Text
-					if dataAttr != "" {
-						printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-					}
-				})
-
-				// Check for content attribute in meta tags
-				if e.Name == "meta" {
-					content := e.Attr("content")
-					if content != "" {
-						printResult(content, "meta", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-					}
-				}
-
-				// Check for URLs in inline JavaScript code
-				if e.Name == "script" {
-					jsCode := e.Text
-					urls := extractURLsFromJS(jsCode)
-					for _, url := range urls {
-						printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-					}
-				}
-
-				// Check for URLs in CSS files
-				if e.Name == "link" && e.Attr("rel") == "stylesheet" {
-					cssURL := e.Attr("href")
-					printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-
-				//Check for custom data attributes that may contain URLs
-				e.ForEach("[data-custom-*]", func(_ int, el *colly.HTMLElement) {
-					customDataAttr := el.Text
-					if customDataAttr != "" {
-						printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-					}
-				})
-				
-			})
-
-			// Extract URLs from <video> tags
-			c.OnHTML("video[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				src := e.Attr("src")
-				if src != "" {
-					printResult(src, "video", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from <audio> tags
-			c.OnHTML("audio[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				src := e.Attr("src")
-				if src != "" {
-					printResult(src, "audio", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from <embed> tags
-			c.OnHTML("embed[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				src := e.Attr("src")
-				if src != "" {
-					printResult(src, "embed", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from <track> tags
-			c.OnHTML("track[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				src := e.Attr("src")
-				if src != "" {
-					printResult(src, "track", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from <area> tags
-			c.OnHTML("area[href]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				href := e.Attr("href")
-				if href != "" {
-					printResult(href, "area", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from <applet> tags
-			c.OnHTML("applet[archive]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				archive := e.Attr("archive")
-				if archive != "" {
-					printResult(archive, "applet", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from <base> tags
-			c.OnHTML("base[href]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				href := e.Attr("href")
-				if href != "" {
-					printResult(href, "base", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from <bgsound> tags
-			c.OnHTML("bgsound[src]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				src := e.Attr("src")
-				if src != "" {
-					printResult(src, "bgsound", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from <body> background attribute
-			c.OnHTML("body[background]", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				background := e.Attr("background")
-				if background != "" {
-					printResult(background, "body-background", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from XML and RSS feeds
-			c.OnHTML("link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml']", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				feedURL := e.Attr("href")
-				if feedURL != "" {
-					printResult(feedURL, "feed", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from WebP images
-			c.OnHTML("img[src*='.webp']", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				webpURL := e.Attr("src")
-				if webpURL != "" {
-					printResult(webpURL, "webp-image", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from web manifest files
-			c.OnHTML("link[rel='manifest']", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				manifestURL := e.Attr("href")
-				if manifestURL != "" {
-					printResult(manifestURL, "manifest", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from social media meta tags (Open Graph and Twitter)
-			c.OnHTML("meta[property^='og:'], meta[name^='twitter:']", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				property := e.Attr("property")
-				name := e.Attr("name")
-				content := e.Attr("content")
-
-				if property != "" && content != "" {
-					printResult(content, "social-media-"+property, *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				} else if name != "" && content != "" {
-					printResult(content, "social-media-"+name, *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from XML sitemaps
-			c.OnHTML("a[href$='.xml']", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				sitemapURL := e.Attr("href")
-				if sitemapURL != "" {
-					printResult(sitemapURL, "sitemap", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from data URIs
-			c.OnHTML("*[src^='data:']", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				dataURI := e.Attr("src")
-				if dataURI != "" {
-					printResult(dataURI, "data-uri", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract WebSocket URLs
-			c.OnHTML("script[src^='ws://'], script[src^='wss://']", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				websocketURL := e.Attr("src")
-				if websocketURL != "" {
-					printResult(websocketURL, "websocket", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
-			})
-
-			// Extract URLs from frame sources
-			c.OnHTML("frame[src], frameset[frameborder='1']", func(e *colly.HTMLElement) {
-				if e.Request.Depth > *depth {
-					// If it is, abort the request
-					e.Request.Abort()
-					return
-				}
-				frameURL := e.Attr("src")
-				if frameURL != "" {
-					printResult(frameURL, "frame", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-				}
-				
+			    e.ForEach("a[href], script[src]:not([src^='ws://']):not([src^='wss://']), form[action], link[rel=stylesheet], [src], iframe, img, [data-*], button[href], area[href], applet[archive], base[href], bgsound[src], body[background], video[src], audio[src], embed[src], track[src], link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml'], img[src*='.webp'], link[rel='manifest'], meta[property^='og:'], meta[name^='twitter:'], a[href$='.xml'], *[src^='data:'], script[src^='ws://'], script[src^='wss://'], frame[src], frameset[frameborder='1']", func(_ int, el *colly.HTMLElement) {
+			        resourceType := ""
+			        attr := ""
+			        switch true {
+			        case el.Name == "a" && el.Attr("href") != "":
+			            resourceType = "href"
+			            attr = el.Attr("href")
+			        case el.Name == "script" && el.Attr("src") != "":
+			            resourceType = "script"
+			            attr = el.Attr("src")
+			        case el.Name == "form" && el.Attr("action") != "":
+			            resourceType = "form"
+			            attr = el.Attr("action")
+			        case el.Name == "link" && el.Attr("rel") == "stylesheet":
+			            resourceType = "css"
+			            attr = el.Attr("href")
+			        case el.Name == "img" && strings.Contains(el.Attr("src"), ".webp"):
+			            resourceType = "webp-image"
+			            attr = el.Attr("src")
+			        case el.Name == "link" && el.Attr("rel") == "manifest":
+			            resourceType = "manifest"
+			            attr = el.Attr("href")
+			        case el.Name == "meta" && (strings.HasPrefix(el.Attr("property"), "og:") || strings.HasPrefix(el.Attr("name"), "twitter:")):
+			            if el.Attr("property") != "" {
+			                resourceType = "social-media-" + el.Attr("property")
+			            } else {
+			                resourceType = "social-media-" + el.Attr("name")
+			            }
+			            attr = el.Attr("content")
+			        case el.Name == "a" && strings.HasSuffix(el.Attr("href"), ".xml"):
+			            resourceType = "sitemap"
+			            attr = el.Attr("href")
+			        case el.Attr("src") != "" && (strings.HasPrefix(el.Attr("src"), "ws://") || strings.HasPrefix(el.Attr("src"), "wss://")):
+			            resourceType = "websocket"
+			            attr = el.Attr("src")
+			        case el.Name == "frame" && el.Attr("src") != "":
+			            resourceType = "frame"
+			            attr = el.Attr("src")
+			        case el.Attr("src") != "":
+			            resourceType = "embedded"
+			            attr = el.Attr("src")
+			        }
+			
+			        if attr != "" {
+			            abs_attr := e.Request.AbsoluteURL(attr)
+			            if strings.Contains(abs_attr, url) || !*inside {
+			                printResult(attr, resourceType, *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+			                if resourceType == "href" {
+			                    e.Request.Visit(attr)
+			                }
+			            }
+			        } else if el.Name == "script" && el.Attr("src") == "" {
+			            jsCode := el.Text
+			            urls := extractURLsFromJS(jsCode)
+			            for _, url := range urls {
+			                printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+			            }
+			        }
+			    })
+			
+			    // Check for URLs in inline JavaScript code
+			    if e.Name == "script" && e.Attr("src") == "" {
+			        jsCode := e.Text
+			        urls := extractURLsFromJS(jsCode)
+			        for _, url := range urls {
+			            printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+			        }
+			    }
+			
+			    // Check for URLs using the custom regular expression pattern
+			    body := e.Text
+			    urls := extractURLsWithCustomPattern(body)
+			    for _, url := range urls {
+			        printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+			    }
+			
+			    // Check for data attributes that may contain URLs
+			    e.ForEach("[data-*]", func(_ int, el *colly.HTMLElement) {
+			        dataAttr := el.Text
+			        if dataAttr != "" {
+			            printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+			        }
+			    })
+			
+			    // Check for custom data attributes that may contain URLs
+			    e.ForEach("[data-custom-*]", func(_ int, el *colly.HTMLElement) {
+			        customDataAttr := el.Text
+			        if customDataAttr != "" {
+			            printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
+			        }
+			    })
 			})
 
 			c.Wait()
@@ -913,28 +589,4 @@ func isInternetConnected() bool {
 		}
 	}
 	return false
-}
-
-func setupCollyQueue(depth int) *queue.Queue {
-    var threads int
-    var maxSize int
-
-    if depth >= 2 {
-        // If depth is 2 or more, limit memory resources and use fewer threads.
-        threads = 2
-        maxSize = 1000 // Set your preferred max queue size here.
-    } else {
-        // For depth 1, use the default configuration.
-        threads = 8
-        maxSize = -1
-    }
-
-    // Initialize Colly queue with custom storage and configuration.
-    s := &queue.InMemoryQueueStorage{MaxSize: maxSize}
-    q, err := queue.New(threads, s)
-    if err != nil {
-        log.Fatalf("Error initializing Colly queue: %v", err)
-    }
-
-    return q
 }
