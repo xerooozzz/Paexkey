@@ -623,16 +623,29 @@ func isInternetConnected() bool {
 	rand.Shuffle(len(shuffledDNS), func(i, j int) {
 		shuffledDNS[i], shuffledDNS[j] = shuffledDNS[j], shuffledDNS[i]
 	})
+	// Check if there's an active network connection
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Println("[INTERNET CHECK ERROR]:", err)
+		return false
+	}
 
-	for {
-		for _, dnsServer := range shuffledDNS {
-			_, err := net.LookupHost(dnsServer)
-			if err == nil {
-				return true
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				for {
+					for _, dnsServer := range shuffledDNS {
+						_, err := net.LookupHost(dnsServer)
+						if err == nil {
+							return true
+						}
+					}
+			
+					log.Println("Waiting for internet connection...")
+					time.Sleep(2 * time.Second) // Wait for 5 seconds before rechecking
+				}
 			}
 		}
-
-		log.Println("Waiting for internet connection...")
-		time.Sleep(2 * time.Second) // Wait for 5 seconds before rechecking
 	}
+	return false
 }
