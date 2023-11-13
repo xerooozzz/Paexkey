@@ -192,99 +192,198 @@ func main() {
 			// Set parallelism
 			c.Limit(&colly.LimitRule{DomainGlob: "*", Parallelism: *threads})
 
+			c.OnHTML("a[href], script[src], form[action], script, link[rel=stylesheet], [src], iframe, img, [data-*], button[href], a[href], form[action], select", func(e *colly.HTMLElement) {
+				link := e.Attr("href")
+				absLink := e.Request.AbsoluteURL(link)
+				if strings.Contains(absLink, url) || !*inside {
+					printResult(link, "href", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					e.Request.Visit(link)
+				}
+
+				printResult(e.Attr("src"), "script", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				printResult(e.Attr("action"), "form", *showSource, *showWhere, *showJson, results, e, outputWriter)
+
+				jsCode := e.Text
+				urls := extractURLsFromJS(jsCode)
+				for _, url := range urls {
+					printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				}
+
+				cssURL := e.Attr("href")
+				printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter)
+
+				srcURL := e.Attr("src")
+				if srcURL != "" {
+					printResult(srcURL, "embedded", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				}
+
+				link2 := e.Attr("href")
+				if link2 != "" && (strings.HasPrefix(link2, "http://") || strings.HasPrefix(link2, "https://")) {
+					printResult(link2, "interactive", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				}
+			})
+
+			// Extract URLs using the custom regular expression pattern
+			c.OnHTML("*", func(e *colly.HTMLElement) {
+				body := e.Text
+				urls := extractURLsWithCustomPattern(body)
+				for _, url := range urls {
+					printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				}
+			})
+
 			// Extract URLs from all HTML elements and attributes
 			c.OnHTML("*", func(e *colly.HTMLElement) {
-			    e.ForEach("a[href], script[src]:not([src^='ws://']):not([src^='wss://']), form[action], link[rel=stylesheet], [src], iframe, img, [data-*], button[href], area[href], applet[archive], base[href], bgsound[src], body[background], video[src], audio[src], embed[src], track[src], link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml'], img[src*='.webp'], link[rel='manifest'], meta[property^='og:'], meta[name^='twitter:'], a[href$='.xml'], *[src^='data:'], script[src^='ws://'], script[src^='wss://'], frame[src], frameset[frameborder='1']", func(_ int, el *colly.HTMLElement) {
-			        resourceType := ""
-			        attr := ""
-			        switch true {
-			        case el.Name == "a" && el.Attr("href") != "":
-			            resourceType = "href"
-			            attr = el.Attr("href")
-			        case el.Name == "script" && el.Attr("src") != "":
-			            resourceType = "script"
-			            attr = el.Attr("src")
-			        case el.Name == "form" && el.Attr("action") != "":
-			            resourceType = "form"
-			            attr = el.Attr("action")
-			        case el.Name == "link" && el.Attr("rel") == "stylesheet":
-			            resourceType = "css"
-			            attr = el.Attr("href")
-			        case el.Name == "img" && strings.Contains(el.Attr("src"), ".webp"):
-			            resourceType = "webp-image"
-			            attr = el.Attr("src")
-			        case el.Name == "link" && el.Attr("rel") == "manifest":
-			            resourceType = "manifest"
-			            attr = el.Attr("href")
-			        case el.Name == "meta" && (strings.HasPrefix(el.Attr("property"), "og:") || strings.HasPrefix(el.Attr("name"), "twitter:")):
-			            if el.Attr("property") != "" {
-			                resourceType = "social-media-" + el.Attr("property")
-			            } else {
-			                resourceType = "social-media-" + el.Attr("name")
-			            }
-			            attr = el.Attr("content")
-			        case el.Name == "a" && strings.HasSuffix(el.Attr("href"), ".xml"):
-			            resourceType = "sitemap"
-			            attr = el.Attr("href")
-			        case el.Attr("src") != "" && (strings.HasPrefix(el.Attr("src"), "ws://") || strings.HasPrefix(el.Attr("src"), "wss://")):
-			            resourceType = "websocket"
-			            attr = el.Attr("src")
-			        case el.Name == "frame" && el.Attr("src") != "":
-			            resourceType = "frame"
-			            attr = el.Attr("src")
-			        case el.Attr("src") != "":
-			            resourceType = "embedded"
-			            attr = el.Attr("src")
-			        }
-			
-			        if attr != "" {
-			            abs_attr := e.Request.AbsoluteURL(attr)
-			            if strings.Contains(abs_attr, url) || !*inside {
-			                printResult(attr, resourceType, *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-			                if resourceType == "href" {
-			                    e.Request.Visit(attr)
-			                }
-			            }
-			        } else if el.Name == "script" && el.Attr("src") == "" {
-			            jsCode := el.Text
-			            urls := extractURLsFromJS(jsCode)
-			            for _, url := range urls {
-			                printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-			            }
-			        }
-			    })
-			
-			    // Check for URLs in inline JavaScript code
-			    if e.Name == "script" && e.Attr("src") == "" {
-			        jsCode := e.Text
-			        urls := extractURLsFromJS(jsCode)
-			        for _, url := range urls {
-			            printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-			        }
-			    }
-			
-			    // Check for URLs using the custom regular expression pattern
-			    body := e.Text
-			    urls := extractURLsWithCustomPattern(body)
-			    for _, url := range urls {
-			        printResult(url, "custom_REGEX", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-			    }
-			
-			    // Check for data attributes that may contain URLs
-			    e.ForEach("[data-*]", func(_ int, el *colly.HTMLElement) {
-			        dataAttr := el.Text
-			        if dataAttr != "" {
-			            printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-			        }
-			    })
-			
-			    // Check for custom data attributes that may contain URLs
-			    e.ForEach("[data-custom-*]", func(_ int, el *colly.HTMLElement) {
-			        customDataAttr := el.Text
-			        if customDataAttr != "" {
-			            printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter, outputFile)
-			        }
-			    })
+				// Check for href attribute
+				href := e.Attr("href")
+				if href != "" {
+					printResult(href, "href", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				}
+
+				// Check for src attribute
+				src := e.Attr("src")
+				if src != "" {
+					printResult(src, "src", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				}
+
+				//Check for data attributes that may contain URLs
+				e.ForEach("[data-*]", func(_ int, el *colly.HTMLElement) {
+					dataAttr := el.Text
+					if dataAttr != "" {
+						printResult(dataAttr, "data", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				})
+
+				// Check for content attribute in meta tags
+				if e.Name == "meta" {
+					content := e.Attr("content")
+					if content != "" {
+						printResult(content, "meta", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				}
+
+				// Check for URLs in inline JavaScript code
+				if e.Name == "script" {
+					jsCode := e.Text
+					urls := extractURLsFromJS(jsCode)
+					for _, url := range urls {
+						printResult(url, "jscode", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				}
+
+				// Check for URLs in CSS files
+				if e.Name == "link" && e.Attr("rel") == "stylesheet" {
+					cssURL := e.Attr("href")
+					printResult(cssURL, "css", *showSource, *showWhere, *showJson, results, e, outputWriter)
+				}
+
+				//Check for custom data attributes that may contain URLs
+				e.ForEach("[data-custom-*]", func(_ int, el *colly.HTMLElement) {
+					customDataAttr := el.Text
+					if customDataAttr != "" {
+						printResult(customDataAttr, "custom-data", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				})
+
+			})
+
+			c.OnHTML("video[src], audio[src], embed[src], track[src], area[href], applet[archive], base[href], bgsound[src], body[background], link[type='application/rss+xml'], link[type='application/atom+xml'], link[type='application/xml'], img[src*='.webp'], link[rel='manifest'], meta[property^='og:'], meta[name^='twitter:'], a[href$='.xml'], *[src^='data:'], script[src^='ws://'], script[src^='wss://'], frame[src], frameset[frameborder='1']", func(e *colly.HTMLElement) {
+				switch {
+				case e.Name == "video":
+					src := e.Attr("src")
+					if src != "" {
+						printResult(src, "video", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "audio":
+					src := e.Attr("src")
+					if src != "" {
+						printResult(src, "audio", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "embed":
+					src := e.Attr("src")
+					if src != "" {
+						printResult(src, "embed", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "track":
+					src := e.Attr("src")
+					if src != "" {
+						printResult(src, "track", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "area":
+					href := e.Attr("href")
+					if href != "" {
+						printResult(href, "area", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "applet":
+					archive := e.Attr("archive")
+					if archive != "" {
+						printResult(archive, "applet", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "base":
+					href := e.Attr("href")
+					if href != "" {
+						printResult(href, "base", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "bgsound":
+					src := e.Attr("src")
+					if src != "" {
+						printResult(src, "bgsound", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "body":
+					background := e.Attr("background")
+					if background != "" {
+						printResult(background, "body-background", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "link":
+					feedURL := e.Attr("href")
+					switch {
+					case strings.Contains(e.Attr("type"), "application/rss+xml"):
+						printResult(feedURL, "feed", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					case strings.Contains(e.Attr("type"), "application/atom+xml"):
+						printResult(feedURL, "feed", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					case strings.Contains(e.Attr("type"), "application/xml"):
+						printResult(feedURL, "feed", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "img" && strings.Contains(e.Attr("src"), ".webp"):
+					webpURL := e.Attr("src")
+					if webpURL != "" {
+						printResult(webpURL, "webp-image", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "link" && e.Attr("rel") == "manifest":
+					manifestURL := e.Attr("href")
+					if manifestURL != "" {
+						printResult(manifestURL, "manifest", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "meta" && (strings.HasPrefix(e.Attr("property"), "og:") || strings.HasPrefix(e.Attr("name"), "twitter:")):
+					property := e.Attr("property")
+					name := e.Attr("name")
+					content := e.Attr("content")
+					if property != "" && content != "" {
+						printResult(content, "social-media-"+property, *showSource, *showWhere, *showJson, results, e, outputWriter)
+					} else if name != "" && content != "" {
+						printResult(content, "social-media-"+name, *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "a" && strings.HasSuffix(e.Attr("href"), ".xml"):
+					sitemapURL := e.Attr("href")
+					if sitemapURL != "" {
+						printResult(sitemapURL, "sitemap", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case strings.HasPrefix(e.Attr("src"), "data:"):
+					dataURI := e.Attr("src")
+					if dataURI != "" {
+						printResult(dataURI, "data-uri", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case strings.HasPrefix(e.Attr("src"), "ws://") || strings.HasPrefix(e.Attr("src"), "wss://"):
+					websocketURL := e.Attr("src")
+					if websocketURL != "" {
+						printResult(websocketURL, "websocket", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				case e.Name == "frame" || (e.Name == "frameset" && e.Attr("frameborder") == "1"):
+					frameURL := e.Attr("src")
+					if frameURL != "" {
+						printResult(frameURL, "frame", *showSource, *showWhere, *showJson, results, e, outputWriter)
+					}
+				}
 			})
 
 			c.Wait()
